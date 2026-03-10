@@ -106,7 +106,13 @@ def save_state(state):
 def download_file(url, file_name):
     print(f"Downloading {file_name} from {url}...")
     try:
-        urllib.request.urlretrieve(url, file_name)
+        req = urllib.request.Request(url, headers={
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': 'https://prodkeys.net/'
+        })
+        with urllib.request.urlopen(req) as response, open(file_name, 'wb') as out_file:
+            import shutil
+            shutil.copyfileobj(response, out_file)
         print("Download completed successfully.")
         return True
     except Exception as e:
