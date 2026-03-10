@@ -2,12 +2,14 @@ import os
 import sys
 import json
 import urllib.request
+import re
 import dropbox
 from dropbox.exceptions import ApiError
 from dropbox.files import WriteMode
 
 EDEN_API = "https://git.eden-emu.dev/api/v1/repos/eden-emu/eden/releases"
-VERSION_FILE = "version.txt"
+STATE_FILE = "state.json"
+VERSION_FILE_OLD = "version.txt"
 
 # Target file substring (AppImage para Linux GCC)
 TARGET_FILE_SUBSTRING = "amd64-gcc-standard.AppImage"
@@ -20,11 +22,26 @@ def get_latest_eden_release():
             data = json.loads(response.read().decode('utf-8'))
             if not data:
                 print("No releases found.")
-                sys.exit(1)
+                return None
             return data[0] # First item is the latest release
     except Exception as e:
         print(f"Failed to fetch releases: {e}")
-        sys.exit(1)
+        return None
+
+def get_latest_links(url):
+    print(f"Fetching links from {url}...")
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    try:
+        html = urllib.request.urlopen(req).read().decode('utf-8')
+        links = re.findall(r'href=[\'\"]([^\'\">]+\.zip)[\'\"]', html)
+        unique_links = []
+        for l in links:
+            if l not in unique_links:
+                unique_links.append(l)
+        return unique_links[:2]
+    except Exception as e:
+        print(f"Failed to fetch links from {url}: {e}")
+        return []
 
 def upload_to_dropbox(file_path, file_name):
     print(f"Uploading {file_name} to Dropbox...")
@@ -33,7 +50,12 @@ def upload_to_dropbox(file_path, file_name):
         app_key = os.environ["DROPBOX_APP_KEY"]
         app_secret = os.environ["DROPBOX_APP_SECRET"]
         refresh_token = os.environ["DROPBOX_REFRESH_TOKEN"]
+    except KeyError as e:
+        print(f"Warning: Environment secret {e} is not configured.")
+        print("Skipping Dropbox upload (dry-run mode).")
+        return True # Return true so the script continues downloading/storing state locally
         
+    try:
         dbx = dropbox.Dropbox(
             app_key=app_key,
             app_secret=app_secret,
@@ -59,59 +81,113 @@ def upload_to_dropbox(file_path, file_name):
                         cursor.offset = f.tell()
 
         print("Upload to Dropbox successful!")
-    except KeyError as e:
-        print(f"Error: El secreto de entorno {e} no está configurado.")
-        sys.exit(1)
+        return True
     except ApiError as e:
         print(f"Failed to upload to Dropbox API: {e}")
-        sys.exit(1)
+        return False
     except Exception as e:
         print(f"Unexpected error uploading to Dropbox: {e}")
-        sys.exit(1)
+        return False
 
-def main():
-    latest_release = get_latest_eden_release()
-    release_tag = latest_release.get("tag_name", "unknown")
-    
-    # Check if we already processed this version
-    if os.path.exists(VERSION_FILE):
-        with open(VERSION_FILE, "r") as f:
-            last_version = f.read().strip()
-            if last_version == release_tag:
-                print(f"Version {release_tag} is already up to date. Nothing to do.")
-                sys.exit(0)
+def load_state():
+    state = {"eden_version": "", "prod_keys": [], "firmwares": []}
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            state.update(json.load(f))
+    elif os.path.exists(VERSION_FILE_OLD):
+        with open(VERSION_FILE_OLD, "r") as f:
+            state["eden_version"] = f.read().strip()
+    return state
 
-    print(f"New version found: {release_tag}")
-    
-    # Find the target asset
-    target_asset = None
-    for asset in latest_release.get("assets", []):
-        if TARGET_FILE_SUBSTRING in asset.get("name", "") and not asset.get("name").endswith(".zsync"):
-            target_asset = asset
-            break
-            
-    if not target_asset:
-        print(f"Error: Could not find an asset containing '{TARGET_FILE_SUBSTRING}' in release {release_tag}")
-        sys.exit(1)
-        
-    download_url = target_asset["browser_download_url"]
-    file_name = target_asset["name"]
-    
-    print(f"Downloading {file_name} from {download_url}...")
+def save_state(state):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=4)
+
+def download_file(url, file_name):
+    print(f"Downloading {file_name} from {url}...")
     try:
-        urllib.request.urlretrieve(download_url, file_name)
+        urllib.request.urlretrieve(url, file_name)
+        print("Download completed successfully.")
+        return True
     except Exception as e:
         print(f"Failed to download file: {e}")
-        sys.exit(1)
+        return False
+
+def main():
+    state = load_state()
+    state_changed = False
+    
+    # 1. Process Eden
+    latest_release = get_latest_eden_release()
+    if latest_release:
+        release_tag = latest_release.get("tag_name", "unknown")
+        if state["eden_version"] != release_tag:
+            print(f"New Eden version found: {release_tag}")
+            target_asset = None
+            for asset in latest_release.get("assets", []):
+                if TARGET_FILE_SUBSTRING in asset.get("name", "") and not asset.get("name").endswith(".zsync"):
+                    target_asset = asset
+                    break
+                    
+            if target_asset:
+                download_url = target_asset["browser_download_url"]
+                file_name = target_asset["name"]
+                if download_file(download_url, file_name):
+                    if upload_to_dropbox(file_name, file_name):
+                        state["eden_version"] = release_tag
+                        state_changed = True
+            else:
+                print(f"Error: Could not find target asset for Eden release {release_tag}")
+        else:
+            print(f"Eden version {release_tag} is already up to date.")
+            
+    # 2. Process Prod Keys
+    keys_links = get_latest_links("https://prodkeys.net/eden-prod-keys-13/")
+    if keys_links:
+        # We only download the ones we don't already have
+        new_keys = [link for link in keys_links if link not in state.get("prod_keys", [])]
+        for link in new_keys:
+            file_name = link.split("/")[-1]
+            if download_file(link, file_name):
+                if upload_to_dropbox(file_name, file_name):
+                    if "prod_keys" not in state:
+                        state["prod_keys"] = []
+                    state["prod_keys"].append(link)
+                    state_changed = True
         
-    print("Download completed successfully.")
-    
-    upload_to_dropbox(file_name, file_name)
-    
-    # Update version file on success
-    with open(VERSION_FILE, "w") as f:
-        f.write(release_tag)
-    print(f"Updated local version to {release_tag}")
+        # Keep only the latest 2 in state
+        all_keys = state.get("prod_keys", [])
+        if len(all_keys) > 2:
+            # The links we just retrieved are the latest, so we intersect them.
+            # But the state also just appended the new keys. It's safer to keep the new_keys in order.
+            # However `keys_links` are the true latest 2.
+            # So anything in `state["prod_keys"]` that is also in `keys_links` should be kept.
+            state["prod_keys"] = [k for k in keys_links if k in state["prod_keys"]]
+            state_changed = True
+            
+    # 3. Process Firmwares
+    firmware_links = get_latest_links("https://prodkeys.net/latest-switch-firmwares-v19/")
+    if firmware_links:
+        new_firmwares = [link for link in firmware_links if link not in state.get("firmwares", [])]
+        for link in new_firmwares:
+            file_name = link.split("/")[-1]
+            if download_file(link, file_name):
+                if upload_to_dropbox(file_name, file_name):
+                    if "firmwares" not in state:
+                        state["firmwares"] = []
+                    state["firmwares"].append(link)
+                    state_changed = True
+                    
+        all_firmwares = state.get("firmwares", [])
+        if len(all_firmwares) > 2:
+            state["firmwares"] = [f for f in firmware_links if f in state["firmwares"]]
+            state_changed = True
+
+    if state_changed:
+        save_state(state)
+        print("State updated locally. (state.json)")
+    else:
+        print("No new updates found.")
 
 if __name__ == "__main__":
     main()
