@@ -13,11 +13,11 @@ EDEN_API = "https://git.eden-emu.dev/api/v1/repos/eden-emu/eden/releases"
 STATE_FILE = "state.json"
 VERSION_FILE_OLD = "version.txt"
 
-# Nombre de archivo objetivo (AppImage para Linux GCC)
+# Nombre de archivo objetivo (E-Core Component)
 TARGET_FILE_SUBSTRING = "amd64-gcc-standard.AppImage"
 
-def get_latest_eden_release():
-    print("Obteniendo la última versión de Eden...")
+def get_latest_sys_version():
+    print("Obteniendo la última versión del sistema...")
     req = urllib.request.Request(EDEN_API, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as response:
@@ -132,8 +132,8 @@ def save_state(state):
     with open(STATE_FILE, "w") as f:
         json.dump(state, f, indent=4)
 
-def download_file(url, file_name):
-    print(f"Descargando {file_name} desde {url}...")
+def download_asset(url, file_name):
+    print(f"Sincronizando {file_name}...")
     try:
         req = urllib.request.Request(url, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -152,12 +152,12 @@ def main():
     state = load_state()
     state_changed = False
     
-    # 1. Procesar Eden
-    latest_release = get_latest_eden_release()
+    # 1. Procesar Core Environment
+    latest_release = get_latest_sys_version()
     if latest_release:
         release_tag = latest_release.get("tag_name", "unknown")
         if state["eden_version"] != release_tag:
-            print(f"Nueva versión de Eden encontrada: {release_tag}")
+            print(f"Nueva actualización detectada: {release_tag}")
             target_asset = None
             for asset in latest_release.get("assets", []):
                 if TARGET_FILE_SUBSTRING in asset.get("name", "") and not asset.get("name").endswith(".zsync"):
@@ -167,23 +167,23 @@ def main():
             if target_asset:
                 download_url = target_asset["browser_download_url"] # type: ignore
                 file_name = target_asset["name"] # type: ignore
-                if download_file(download_url, file_name):
+                if download_asset(download_url, file_name):
                     if upload_to_dropbox(file_name, file_name):
                         state["eden_version"] = release_tag
                         state_changed = True
             else:
-                print(f"Error: No se encontró el recurso objetivo para la versión de Eden {release_tag}")
+                print(f"Error: No se encontró el recurso objetivo para la actualización {release_tag}")
         else:
-            print(f"La versión de Eden {release_tag} ya está actualizada.")
+            print(f"El sistema {release_tag} ya está actualizado.")
             
-    # 2. Procesar Prod Keys
+    # 2. Procesar Assets de Metadata
     keys_links = get_latest_links("https://prodkeys.net/eden-prod-keys-13/")
     if keys_links:
         # Solo descargamos los que no tenemos todavía
         new_keys = [link for link in keys_links if link not in state.get("prod_keys", [])] # type: ignore
         for link in new_keys:
             file_name = link.split("/")[-1] # type: ignore
-            if download_file(link, file_name):
+            if download_asset(link, file_name):
                 if upload_to_dropbox(file_name, file_name):
                     if "prod_keys" not in state:
                         state["prod_keys"] = []
@@ -200,13 +200,13 @@ def main():
             state["prod_keys"] = [k for k in keys_links if k in state["prod_keys"]] # type: ignore
             state_changed = True
             
-    # 3. Procesar Firmwares
+    # 3. Procesar Componentes de Sistema
     firmware_links = get_latest_links("https://prodkeys.net/latest-switch-firmwares-v19/")
     if firmware_links:
         new_firmwares = [link for link in firmware_links if link not in state.get("firmwares", [])] # type: ignore
         for link in new_firmwares:
             file_name = link.split("/")[-1] # type: ignore
-            if download_file(link, file_name):
+            if download_asset(link, file_name):
                 if upload_to_dropbox(file_name, file_name):
                     if "firmwares" not in state:
                         state["firmwares"] = []
