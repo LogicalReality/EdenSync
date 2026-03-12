@@ -17,7 +17,7 @@ B_URL = d("aHR0cHM6Ly9naXQuZWRlbi1lbXUuZGV2L2FwaS92MS9yZXBvcy9lZGVuLWVtdS9lZGVuL
 TARGET_FILE_SUBSTRING = d("YW1kNjQtZ2NjLXN0YW5kYXJkLkFwcEltYWdl")  # target asset identifier
 
 def get_sys_releases(n: int = 2):
-    print("Sincronizando componente...")
+    print("Consultando versiones disponibles del componente...")
     req = urllib.request.Request(B_URL, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as response:
@@ -93,7 +93,7 @@ def get_dropbox_files(dbx) -> set[str]:
         return set()
 
 def upload_to_dropbox(dbx, file_path, file_name):
-    print(f"Subiendo {file_name}...")
+    print(f"Subiendo a Dropbox: {file_name}...")
     try:
         file_size = os.path.getsize(file_path)
         CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
@@ -112,7 +112,7 @@ def upload_to_dropbox(dbx, file_path, file_name):
                         dbx.files_upload_session_append_v2(f.read(CHUNK_SIZE), cursor)
                         cursor.offset = f.tell()
 
-        print("¡Subida exitosa!")
+        print("Archivo subido correctamente.")
         return True
     except ApiError as e:
         print(f"Error en la API de almacenamiento: {e}")
@@ -122,7 +122,7 @@ def upload_to_dropbox(dbx, file_path, file_name):
         return False
 
 def download_asset(url, file_name):
-    print(f"Sincronizando {file_name}...")
+    print(f"Descargando: {file_name}...")
     try:
         req = urllib.request.Request(url, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -130,7 +130,7 @@ def download_asset(url, file_name):
         })
         with urllib.request.urlopen(req) as response, open(file_name, 'wb') as out_file:
             shutil.copyfileobj(response, out_file)
-        print("Descarga completada.")
+        print("Descarga completada exitosamente.")
         return True
     except Exception as e:
         print(f"Error al descargar: {e}")
@@ -228,6 +228,19 @@ def main():
         print("Sincronización completada.")
     else:
         print("No se encontraron nuevas actualizaciones.")
+
+    # Resumen final del estado en Dropbox
+    print("\n--- Estado del almacenamiento remoto ---")
+    final_core = sorted(f for f in backed_up if TARGET_FILE_SUBSTRING in f)
+    final_core_tags = [t for f in final_core for t in _re.findall(r'v\d+\.\d+[\d.\-\w]*', f)]
+    print(f"  Componente : {final_core_tags if final_core_tags else 'ninguno'}")
+
+    final_keys = [link.split("/")[-1] for link in (keys_links if keys_links else []) if link.split("/")[-1] in backed_up]
+    print(f"  Keys       : {final_keys if final_keys else 'ninguna'}")
+
+    final_sys = [link.split("/")[-1] for link in (sys_links if sys_links else []) if link.split("/")[-1] in backed_up]
+    print(f"  Firmware   : {final_sys if final_sys else 'ninguno'}")
+    print("----------------------------------------")
 
 if __name__ == "__main__":
     main()
