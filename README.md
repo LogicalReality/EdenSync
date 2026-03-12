@@ -1,8 +1,8 @@
 # Project-E Sync (PESync)
 
-PESync es una herramienta de automatización en Python diseñada para gestionar la sincronización y el respaldo de componentes de entorno. El script automatiza el flujo de búsqueda, descarga y almacenamiento en la nube (Dropbox) de los siguientes recursos:
+PESync es una herramienta de automatización en Python diseñada para gestionar la sincronización y el respaldo de componentes de emulación. El script automatiza el flujo de búsqueda, descarga y almacenamiento en la nube (Dropbox) de los siguientes recursos:
 
-- **E-Core Environment**: El binario principal del entorno en formato `AppImage` para sistemas compatibles.
+- **Emu**: El binario principal del entorno en formato `AppImage` para sistemas compatibles.
 - **Licencias del sistema**: Archivos de configuración necesarios para la ejecución del emulador.
 - **Actualizaciones del sistema**: Componentes base requeridos para la compatibilidad del emulador.
 
@@ -30,7 +30,7 @@ pip install -r requirements.txt
 
 ## ⚙️ Configuración
 
-Para habilitar la sincronización remota, configura las siguientes variables de entorno (por ejemplo, como GitHub Actions Secrets):
+Para habilitar la sincronización remota, configura las siguientes variables de entorno (por ejemplo, como GitHub Actions Repository Secrets):
 
 | Variable | Propósito |
 | :--- | :--- |
