@@ -8,6 +8,7 @@ from bs4 import BeautifulSoup # type: ignore
 import dropbox # type: ignore
 from dropbox.exceptions import ApiError # type: ignore
 from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo # type: ignore
+import re
 
 def d(s):
     return base64.b64decode(s).decode('utf-8')
@@ -23,7 +24,16 @@ BACKUP_CONFIG = {
     "system": 2
 }
 
-def get_sys_releases(n: int = 1):
+def delete_from_dropbox(dbx, file_name):
+    print(f"Eliminando versión antigua: {file_name}...")
+    try:
+        dbx.files_delete_v2(f'/{file_name}')
+        return True
+    except Exception as e:
+        print(f"Error al eliminar: {e}")
+        return False
+
+def get_sys_releases(n: int = 2) -> list[dict[str, Any]]:
     print("Consultando versiones disponibles del Emu...")
     req = urllib.request.Request(B_URL, headers={'User-Agent': 'Mozilla/5.0'})
     try:
@@ -41,7 +51,7 @@ def get_sys_releases(n: int = 1):
 def is_valid_link(link: str) -> bool:
     return link.startswith("https://") and link.endswith(".zip")
 
-def get_latest_links(url, limit=1, max_retries=3):
+def get_latest_links(url: str, limit: int = 2, max_retries: int = 3) -> list[str]:
     for attempt in range(max_retries):
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -66,6 +76,7 @@ def get_latest_links(url, limit=1, max_retries=3):
             else:
                 print("Máximo de reintentos alcanzado.")
                 return []
+    return []
 
 def get_dropbox_client():
     try:
@@ -154,9 +165,8 @@ def main():
     any_uploaded = False
 
     # 1. Procesar Emu
-    import re as _re
     print("Verificando versiones del Emu...")
-    releases: list[dict[str, Any]] = get_sys_releases(n=BACKUP_CONFIG.get("emu", 1))
+    releases: list[dict[str, Any]] = get_sys_releases(n=BACKUP_CONFIG.get("emu", 2))
     
     # Identificar qué versiones ya están en el backup
     all_core_tags = [str(r.get("tag_name", "unknown")) for r in releases]
@@ -197,14 +207,27 @@ def main():
         else:
             print(f"Error: No se encontró el recurso para la versión {release_tag}")
 
+    # Rotación Emu: eliminar archivos que no están en la lista de deseados
+    desired_emu_files = []
+    for release in releases:
+        for asset in release.get("assets", []):
+            name = asset.get("name", "")
+            if TARGET_FILE_SUBSTRING in name and not name.endswith(".zsync"):
+                desired_emu_files.append(name)
+    
+    for f in list(backed_up):
+        if TARGET_FILE_SUBSTRING in f and f not in desired_emu_files:
+            if delete_from_dropbox(dbx, f):
+                backed_up.remove(f)
+
 
     # 2. Procesar Licencias
     print("Verificando licencias del sistema...")
-    keys_links: list[str] = get_latest_links(d("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvZWRlbi1wcm9kLWtleXMtMTMv"), limit=BACKUP_CONFIG.get("licenses", 1)) or []
+    keys_links: list[str] = get_latest_links(d("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvZWRlbi1wcm9kLWtleXMtMTMv"), limit=BACKUP_CONFIG.get("licenses", 2)) or []
     if keys_links:
         keys_in_backup = [link.split("/")[-1] for link in keys_links if link.split("/")[-1] in backed_up]
         keys_missing  = [link for link in keys_links if link.split("/")[-1] not in backed_up]
-        keys_display  = [(_re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in keys_in_backup]
+        keys_display  = [(re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in keys_in_backup]
         print(f"Licencias en backup: {len(keys_in_backup)} de {len(keys_links)} — {keys_display}")
         for link in keys_missing:
             link = str(link)
@@ -217,13 +240,22 @@ def main():
     else:
         print("ADVERTENCIA: No se pudieron obtener las licencias.")
 
+    # Rotación Licencias
+    desired_keys_files = [link.split("/")[-1] for link in keys_links]
+    for f in list(backed_up):
+        # Identificar si es una licencia: termina en .zip y tiene patrón de versión
+        if f.endswith(".zip") and re.search(r'\d+\.\d+', f) and "firmware" not in f.lower():
+            if f not in desired_keys_files:
+                if delete_from_dropbox(dbx, f):
+                    backed_up.remove(f)
+
     # 3. Procesar Actualizaciones de Sistema
     print("Verificando actualizaciones del sistema...")
-    sys_links: list[str] = get_latest_links(d("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvbGF0ZXN0LXN3aXRjaC1maXJtd2FyZXMtdjE5Lw=="), limit=BACKUP_CONFIG.get("system", 1)) or []
+    sys_links: list[str] = get_latest_links(d("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvbGF0ZXN0LXN3aXRjaC1maXJtd2FyZXMtdjE5Lw=="), limit=BACKUP_CONFIG.get("system", 2)) or []
     if sys_links:
         sys_in_backup  = [link.split("/")[-1] for link in sys_links if link.split("/")[-1] in backed_up]
         sys_missing    = [link for link in sys_links if link.split("/")[-1] not in backed_up]
-        sys_display    = [(_re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in sys_in_backup]
+        sys_display    = [(re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in sys_in_backup]
         print(f"Actualizaciones en backup: {len(sys_in_backup)} de {len(sys_links)} — {sys_display}")
         for link in sys_missing:
             link = str(link)
@@ -236,6 +268,15 @@ def main():
     else:
         print("ADVERTENCIA: No se pudieron obtener las actualizaciones del sistema.")
 
+    # Rotación Sistema
+    desired_sys_files = [link.split("/")[-1] for link in sys_links]
+    for f in list(backed_up):
+        # Identificar si es sistema: termina en .zip y contiene "firmware" o "v19"
+        if f.endswith(".zip") and ("firmware" in f.lower() or "v19" in f.lower()):
+            if f not in desired_sys_files:
+                if delete_from_dropbox(dbx, f):
+                    backed_up.remove(f)
+
     if any_uploaded:
         print("Sincronización completada.")
     else:
@@ -244,15 +285,15 @@ def main():
     # Resumen final del estado en Dropbox
     print("\n--- Estado del almacenamiento remoto ---")
     final_core = sorted(f for f in backed_up if TARGET_FILE_SUBSTRING in f)
-    final_core_tags = [t for f in final_core for t in _re.findall(r'v\d+\.\d+[\d.\-\w]*', f)]
+    final_core_tags = [t for f in final_core for t in re.findall(r'v\d+\.\d+[\d.\-\w]*', f)]
     print(f"  Emu : {final_core_tags if final_core_tags else 'ninguno'}")
 
     final_keys = [link.split("/")[-1] for link in (keys_links if keys_links else []) if link.split("/")[-1] in backed_up]
-    final_keys_display = [(_re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in final_keys]
+    final_keys_display = [(re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in final_keys]
     print(f"  Licencias  : {final_keys_display if final_keys_display else 'ninguna'}")
 
     final_sys = [link.split("/")[-1] for link in (sys_links if sys_links else []) if link.split("/")[-1] in backed_up]
-    final_sys_display = [(_re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in final_sys]
+    final_sys_display = [(re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in final_sys]
     print(f"  Sistema    : {final_sys_display if final_sys_display else 'ninguno'}")
     print("----------------------------------------")
 
