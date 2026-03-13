@@ -12,12 +12,12 @@ from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo # type: ign
 def d(s):
     return base64.b64decode(s).decode('utf-8')
 
-B_URL = d("aHR0cHM6Ly9naXQuZWRlbi1lbXUuZGV2L2FwaS92MS9yZXBvcy9lZGVuLWVtdS9lZGVuL3JlbGVhc2Vz")  # emulator releases endpoint
+B_URL = d("aHR0cHM6Ly9naXQuZWRlbi1lbXUuZGV2L2FwaS92MS9yZXBvcy9lZGVuLWVtdS9lZGVuL3JlbGVhc2Vz")  # Emu releases endpoint
 
 TARGET_FILE_SUBSTRING = d("YW1kNjQtZ2NjLXN0YW5kYXJkLkFwcEltYWdl")  # target asset identifier
 
 def get_sys_releases(n: int = 2):
-    print("Consultando versiones disponibles del emu...")
+    print("Consultando versiones disponibles del Emu...")
     req = urllib.request.Request(B_URL, headers={'User-Agent': 'Mozilla/5.0'})
     try:
         with urllib.request.urlopen(req) as response:
@@ -146,26 +146,29 @@ def main():
     backed_up: set[str] = get_dropbox_files(dbx)
     any_uploaded = False
 
-    # 1. Procesar Core Environment
+    # 1. Procesar Emu
     import re as _re
+    print("Verificando versiones del Emu...")
     releases: list[dict[str, Any]] = get_sys_releases(n=2)
-    all_core_in_backup = sorted(f for f in backed_up if TARGET_FILE_SUBSTRING in f)
-    backed_up_tags = [t for f in all_core_in_backup for t in _re.findall(r'v\d+\.\d+[\d.\-\w]*', f)]
-
-    if all_core_in_backup:
-        print("emu en backup: {}".format(backed_up_tags))
-    else:
-        print("No hay versiones del emu en backup aún.")
+    
+    # Identificar qué versiones ya están en el backup
+    all_core_tags = [str(r.get("tag_name", "unknown")) for r in releases]
+    core_in_backup_tags = []
+    
+    for tag in all_core_tags:
+        if any(tag in f and TARGET_FILE_SUBSTRING in f for f in backed_up):
+            core_in_backup_tags.append(tag)
+    
+    print(f"Emu en backup: {len(core_in_backup_tags)} de {len(all_core_tags)} — {core_in_backup_tags}")
 
     for _release in releases:
         latest_release: dict[str, Any] = dict(_release)
         release_tag: str = str(latest_release.get("tag_name", "unknown"))
-        core_in_backup = [f for f in backed_up if release_tag in f and TARGET_FILE_SUBSTRING in f]
+        
+        if release_tag in core_in_backup_tags:
+            continue  # ya respaldado
 
-        if core_in_backup:
-            continue  # ya respaldado, pasar al siguiente
-
-        print(f"Procesando versión del emu: {release_tag}")
+        print(f"Procesando versión del Emu: {release_tag}")
         target_asset: dict[str, Any] | None = None
         for _asset in latest_release.get("assets", []):
             if not isinstance(_asset, dict):
@@ -235,7 +238,7 @@ def main():
     print("\n--- Estado del almacenamiento remoto ---")
     final_core = sorted(f for f in backed_up if TARGET_FILE_SUBSTRING in f)
     final_core_tags = [t for f in final_core for t in _re.findall(r'v\d+\.\d+[\d.\-\w]*', f)]
-    print(f"  emu : {final_core_tags if final_core_tags else 'ninguno'}")
+    print(f"  Emu : {final_core_tags if final_core_tags else 'ninguno'}")
 
     final_keys = [link.split("/")[-1] for link in (keys_links if keys_links else []) if link.split("/")[-1] in backed_up]
     final_keys_display = [(_re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in final_keys]
