@@ -16,7 +16,14 @@ B_URL = d("aHR0cHM6Ly9naXQuZWRlbi1lbXUuZGV2L2FwaS92MS9yZXBvcy9lZGVuLWVtdS9lZGVuL
 
 TARGET_FILE_SUBSTRING = d("YW1kNjQtZ2NjLXN0YW5kYXJkLkFwcEltYWdl")  # target asset identifier
 
-def get_sys_releases(n: int = 2):
+# Configuración de cantidad de versiones a respaldar
+BACKUP_CONFIG = {
+    "emu": 2,
+    "licenses": 2,
+    "system": 2
+}
+
+def get_sys_releases(n: int = 1):
     print("Consultando versiones disponibles del Emu...")
     req = urllib.request.Request(B_URL, headers={'User-Agent': 'Mozilla/5.0'})
     try:
@@ -34,7 +41,7 @@ def get_sys_releases(n: int = 2):
 def is_valid_link(link: str) -> bool:
     return link.startswith("https://") and link.endswith(".zip")
 
-def get_latest_links(url, max_retries=3):
+def get_latest_links(url, limit=1, max_retries=3):
     for attempt in range(max_retries):
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -49,7 +56,7 @@ def get_latest_links(url, max_retries=3):
                 return []
 
             unique_links: list[str] = list(dict.fromkeys(links))
-            return unique_links[:2] # type: ignore[index]
+            return unique_links[:limit] # type: ignore[index]
 
         except Exception as e:
             print(f"Intento {attempt + 1} fallido: {e}")
@@ -149,7 +156,7 @@ def main():
     # 1. Procesar Emu
     import re as _re
     print("Verificando versiones del Emu...")
-    releases: list[dict[str, Any]] = get_sys_releases(n=2)
+    releases: list[dict[str, Any]] = get_sys_releases(n=BACKUP_CONFIG.get("emu", 1))
     
     # Identificar qué versiones ya están en el backup
     all_core_tags = [str(r.get("tag_name", "unknown")) for r in releases]
@@ -193,7 +200,7 @@ def main():
 
     # 2. Procesar Licencias
     print("Verificando licencias del sistema...")
-    keys_links: list[str] = get_latest_links(d("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvZWRlbi1wcm9kLWtleXMtMTMv")) or []
+    keys_links: list[str] = get_latest_links(d("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvZWRlbi1wcm9kLWtleXMtMTMv"), limit=BACKUP_CONFIG.get("licenses", 1)) or []
     if keys_links:
         keys_in_backup = [link.split("/")[-1] for link in keys_links if link.split("/")[-1] in backed_up]
         keys_missing  = [link for link in keys_links if link.split("/")[-1] not in backed_up]
@@ -212,7 +219,7 @@ def main():
 
     # 3. Procesar Actualizaciones de Sistema
     print("Verificando actualizaciones del sistema...")
-    sys_links: list[str] = get_latest_links(d("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvbGF0ZXN0LXN3aXRjaC1maXJtd2FyZXMtdjE5Lw==")) or []
+    sys_links: list[str] = get_latest_links(d("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvbGF0ZXN0LXN3aXRjaC1maXJtd2FyZXMtdjE5Lw=="), limit=BACKUP_CONFIG.get("system", 1)) or []
     if sys_links:
         sys_in_backup  = [link.split("/")[-1] for link in sys_links if link.split("/")[-1] in backed_up]
         sys_missing    = [link for link in sys_links if link.split("/")[-1] not in backed_up]
