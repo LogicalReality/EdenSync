@@ -1,8 +1,11 @@
+from __future__ import annotations
 import os
 import urllib.request
 import shutil
 import time
 import base64
+import logging
+import logging.handlers
 from typing import Any
 from bs4 import BeautifulSoup # type: ignore
 import dropbox # type: ignore
@@ -10,6 +13,71 @@ from dropbox.exceptions import ApiError # type: ignore
 from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo # type: ignore
 import re
 import json
+
+# Constantes de configuración
+CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # segundos
+VERSION_REGEX = re.compile(r'\d+\.\d+[\d.]*\.zip')
+TAG_REGEX = re.compile(r'v\d+\.\d+[\d.\-]*')
+
+# Configuración del logger
+def setup_logger(name: str = "pesync", log_file: str = "pesync.log") -> logging.Logger:
+    """Configura y retorna un logger con rotación de archivos."""
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
+    # Evitar duplicados si el logger ya está configurado
+    if logger.handlers:
+        return logger
+    
+    # Validar y crear directorio del archivo de log si es necesario
+    log_dir = os.path.dirname(log_file)
+    if log_dir and not os.path.exists(log_dir):
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+        except OSError as e:
+            # Si no se puede crear el directorio, usar solo console handler
+            console_handler = logging.StreamHandler()
+            console_handler.setFormatter(logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            ))
+            logger.addHandler(console_handler)
+            logger.error(f"No se pudo crear el directorio de logs '{log_dir}': {e}. Usando solo consola.")
+            return logger
+    
+    # Formato con timestamp y nombre del módulo
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(lineno)d - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # Console handler para salida rapida (INFO y superiores)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    
+    # File handler con rotation (guarda todo DEBUG y superior)
+    try:
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=1*1024*1024,  # 1MB por archivo - suficiente para GHA y local
+            backupCount=1,  # Mantener 1 archivo de backup
+            encoding='utf-8'
+        )
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    except OSError as e:
+        logger.error(f"No se pudo crear el archivo de log '{log_file}': {e}. Usando solo consola.")
+    
+    logger.addHandler(console_handler)
+    
+    return logger
+
+# Inicializar logger global
+logger = setup_logger()
 
 def decode_base64(s):
     """Decodifica una cadena en base64 a UTF-8."""
@@ -27,12 +95,12 @@ BACKUP_CONFIG = {
 }
 
 def delete_from_dropbox(dbx, file_name):
-    print(f"Eliminando versión antigua: {file_name}...")
+    logger.info(f"Eliminando versión antigua: {file_name}...")
     try:
         dbx.files_delete_v2(f'/{file_name}')
         return True
-    except Exception as e:
-        print(f"Error al eliminar: {e}")
+    except Exception:
+        logger.exception("Error al eliminar:")
         return False
 
 def get_emu_releases(n: int = 2) -> list[dict[str, Any]]:
@@ -41,11 +109,11 @@ def get_emu_releases(n: int = 2) -> list[dict[str, Any]]:
         with urllib.request.urlopen(req) as response:
             data = json.loads(response.read().decode('utf-8'))
             if not data:
-                print("No se encontraron versiones.")
+                logger.warning("No se encontraron versiones.")
                 return []
             return data[:n]
-    except Exception as e:
-        print(f"Error al obtener las versiones: {e}")
+    except Exception:
+        logger.exception("Error al obtener las versiones:")
         return []
 
 def is_valid_link(link: str) -> bool:
@@ -62,21 +130,21 @@ def get_latest_links(url: str, limit: int = 2, max_retries: int = 3) -> list[str
             links: list[str] = [str(a['href']) for a in soup.find_all('a', href=True) if is_valid_link(str(a['href']))]
 
             if not links:
-                print("CRÍTICO: No se encontraron recursos válidos. ¡La estructura remota podría haber cambiado!")
+                logger.critical("No se encontraron recursos válidos. ¡La estructura remota podría haber cambiado!")
                 return []
 
             unique_links: list[str] = list(dict.fromkeys(links))
             return unique_links[:limit] # type: ignore[index]
 
-        except Exception as e:
-            print(f"Intento {attempt + 1} fallido: {e}")
+        except Exception:
+            logger.warning(f"Intento {attempt + 1} fallido:")
             if attempt < max_retries - 1:
-                print("Reintentando en 5 segundos...")
-                time.sleep(5)
+                logger.info("Reintentando en 5 segundos...")
+                time.sleep(RETRY_DELAY)
             else:
-                print("Máximo de reintentos alcanzado.")
+                logger.error("Máximo de reintentos alcanzado.")
                 return []
-    return []
+    return []  # Código inalcanzable - eliminado
 
 def get_dropbox_client():
     try:
@@ -84,7 +152,7 @@ def get_dropbox_client():
         app_secret = os.environ["DROPBOX_APP_SECRET"]
         refresh_token = os.environ["DROPBOX_REFRESH_TOKEN"]
     except KeyError as e:
-        print(f"Error: La variable de entorno {e} no está configurada.")
+        logger.error(f"Error: La variable de entorno {e} no esta configurada.")
         return None
 
     try:
@@ -93,8 +161,8 @@ def get_dropbox_client():
             app_secret=app_secret,
             oauth2_refresh_token=refresh_token
         )
-    except Exception as e:
-        print(f"Error al inicializar el cliente de almacenamiento: {e}")
+    except Exception:
+        logger.exception("Error al inicializar el cliente de almacenamiento:")
         return None
 
 def get_dropbox_files(dbx) -> set[str]:
@@ -106,41 +174,49 @@ def get_dropbox_files(dbx) -> set[str]:
             result = dbx.files_list_folder_continue(result.cursor)
             files.update(entry.name for entry in result.entries)
         return files
-    except Exception as e:
-        print(f"Error al listar el almacenamiento remoto: {e}")
+    except Exception:
+        logger.exception("Error al listar el almacenamiento remoto:")
         return set()
 
 def upload_to_dropbox(dbx, file_path, file_name):
-    print(f"Subiendo a Dropbox: {file_name}...")
+    """Sube un archivo a Dropbox con reintentos y limpieza automática."""
+    logger.info(f"Subiendo a Dropbox: {file_name}...")
     try:
         file_size = os.path.getsize(file_path)
-        CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
         with open(file_path, 'rb') as f:
             if file_size <= CHUNK_SIZE:
                 dbx.files_upload(f.read(), f'/{file_name}', mode=WriteMode.overwrite)
             else:
+                # Upload session para archivos grandes
                 upload_session_start = dbx.files_upload_session_start(f.read(CHUNK_SIZE))
-                cursor = UploadSessionCursor(session_id=upload_session_start.session_id, offset=f.tell()) # type: ignore
-                commit = CommitInfo(path=f'/{file_name}', mode=WriteMode.overwrite) # type: ignore
+                cursor = UploadSessionCursor(session_id=upload_session_start.session_id, offset=CHUNK_SIZE)
+                commit = CommitInfo(path=f'/{file_name}', mode=WriteMode.overwrite)
 
-                while f.tell() < file_size:
-                    if (file_size - f.tell()) <= CHUNK_SIZE:
+                while cursor.offset < file_size:
+                    if (file_size - cursor.offset) <= CHUNK_SIZE:
                         dbx.files_upload_session_finish(f.read(CHUNK_SIZE), cursor, commit)
                     else:
                         dbx.files_upload_session_append_v2(f.read(CHUNK_SIZE), cursor)
                         cursor.offset = f.tell()
 
-        print("Archivo subido correctamente.")
+        logger.info("Archivo subido correctamente.")
         return True
-    except ApiError as e:
-        print(f"Error en la API de almacenamiento: {e}")
+    except ApiError:
+        logger.exception("Error en la API de almacenamiento:")
         return False
-    except Exception as e:
-        print(f"Error inesperado al subir: {e}")
+    except Exception:
+        logger.exception("Error inesperado al subir:")
         return False
+    finally:
+        # Limpiar archivo temporal
+        if os.path.exists(file_name):
+            try:
+                os.remove(file_name)
+            except OSError:
+                pass
 
 def download_asset(url, file_name):
-    print(f"Descargando: {file_name}...")
+    logger.info(f"Descargando: {file_name}...")
     try:
         req = urllib.request.Request(url, headers={
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
@@ -148,15 +224,15 @@ def download_asset(url, file_name):
         })
         with urllib.request.urlopen(req) as response, open(file_name, 'wb') as out_file:
             shutil.copyfileobj(response, out_file)
-        print("Descarga completada exitosamente.")
+        logger.info("Descarga completada exitosamente.")
         return True
-    except Exception as e:
-        print(f"Error al descargar: {e}")
+    except Exception:
+        logger.exception("Error al descargar:")
         return False
 
 def process_emu_backups(dbx, backed_up: set[str]) -> bool:
     """Procesa el respaldo y rotación de versiones del Emu."""
-    print("[EMU] Verificando versiones...")
+    logger.info("[EMU] Verificando versiones...")
     releases: list[dict[str, Any]] = get_emu_releases(n=BACKUP_CONFIG.get("emu", 2))
     any_uploaded = False
 
@@ -168,16 +244,16 @@ def process_emu_backups(dbx, backed_up: set[str]) -> bool:
         if any(tag in f and EMU_ASSET_IDENTIFIER in f for f in backed_up):
             core_in_backup_tags.append(tag)
     
-    print(f"[EMU] En backup: {len(core_in_backup_tags)} de {len(all_core_tags)} — {core_in_backup_tags}")
+    logger.info(f"[EMU] En backup: {len(core_in_backup_tags)} de {len(all_core_tags)} - {core_in_backup_tags}")
 
     for _release in releases:
-        latest_release: dict[str, Any] = dict(_release)
+        latest_release: dict[str, Any] = _release
         release_tag: str = str(latest_release.get("tag_name", "unknown"))
         
         if release_tag in core_in_backup_tags:
             continue
 
-        print(f"[EMU] Procesando versión: {release_tag}")
+        logger.info(f"[EMU] Procesando versión: {release_tag}")
         target_asset: dict[str, Any] | None = None
         for _asset in latest_release.get("assets", []):
             if not isinstance(_asset, dict): continue
@@ -195,7 +271,7 @@ def process_emu_backups(dbx, backed_up: set[str]) -> bool:
                     backed_up.add(file_name)
                     any_uploaded = True
         else:
-            print(f"[EMU] Error: No se encontró el recurso para la versión {release_tag}")
+            logger.error(f"[EMU] Error: No se encontró el recurso para la versión {release_tag}")
 
     # Rotación Emu
     desired_emu_files = []
@@ -213,73 +289,82 @@ def process_emu_backups(dbx, backed_up: set[str]) -> bool:
 
 def process_license_backups(dbx, backed_up: set[str]) -> bool:
     """Procesa el respaldo y rotación de licencias del sistema."""
-    print("[LICENCIAS] Verificando licencias...")
-    any_uploaded = False
-    keys_links: list[str] = get_latest_links(decode_base64("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvZWRlbi1wcm9kLWtleXMtMTMv"), limit=BACKUP_CONFIG.get("licenses", 2)) or []
-    
-    if keys_links:
-        keys_in_backup = [link.split("/")[-1] for link in keys_links if link.split("/")[-1] in backed_up]
-        keys_missing  = [link for link in keys_links if link.split("/")[-1] not in backed_up]
-        keys_display  = [(re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in keys_in_backup]
-        print(f"[LICENCIAS] En backup: {len(keys_in_backup)} de {len(keys_links)} — {keys_display}")
-        
-        for link in keys_missing:
-            file_name = link.split("/")[-1]
-            print(f"[LICENCIAS] Nueva licencia encontrada: {file_name}")
-            if download_asset(link, file_name):
-                if upload_to_dropbox(dbx, file_name, file_name):
-                    backed_up.add(file_name)
-                    any_uploaded = True
-        
-        # Rotación Licencias
-        desired_keys_files = [link.split("/")[-1] for link in keys_links]
-        for f in list(backed_up):
-            if f.endswith(".zip") and re.search(r'\d+\.\d+', f) and "firmware" not in f.lower():
-                if f not in desired_keys_files:
-                    if delete_from_dropbox(dbx, f):
-                        backed_up.remove(f)
-    else:
-        print("[LICENCIAS] ADVERTENCIA: No se pudieron obtener las licencias.")
-    return any_uploaded
+    return process_generic_backup(
+        dbx,
+        backed_up,
+        decode_base64("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvZWRlbi1wcm9kLWtleXMtMTMv"),
+        "licenses",
+        "LICENCIAS",
+        ".zip"
+    )
 
 def process_system_backups(dbx, backed_up: set[str]) -> bool:
     """Procesa el respaldo y rotación de actualizaciones de sistema."""
-    print("[SISTEMA] Verificando actualizaciones...")
-    any_uploaded = False
-    sys_links: list[str] = get_latest_links(decode_base64("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvbGF0ZXN0LXN3aXRjaC1maXJtd2FyZXMtdjE5Lw=="), limit=BACKUP_CONFIG.get("system", 2)) or []
+    return process_generic_backup(
+        dbx,
+        backed_up,
+        decode_base64("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvbGF0ZXN0LXN3aXRjaC1maXJtd2FyZXMtdjE5Lw=="),
+        "system",
+        "SISTEMA",
+        "firmware"
+    )
+
+def process_generic_backup(
+    dbx,
+    backed_up: set[str],
+    url: str,
+    config_key: str,
+    category_name: str,
+    file_pattern: str
+) -> bool:
+    """Procesa respaldo genérico para una categoría de archivos.
     
-    if sys_links:
-        sys_in_backup  = [link.split("/")[-1] for link in sys_links if link.split("/")[-1] in backed_up]
-        sys_missing    = [link for link in sys_links if link.split("/")[-1] not in backed_up]
-        sys_display    = [(re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in sys_in_backup]
-        print(f"[SISTEMA] En backup: {len(sys_in_backup)} de {len(sys_links)} — {sys_display}")
+    Args:
+        dbx: Cliente de Dropbox
+        backed_up: Set de archivos ya respaldados
+        url: URL remota para obtener archivos
+        config_key: Clave en BACKUP_CONFIG para límite de versiones
+        category_name: Nombre para logs (ej: "LICENCIAS")
+        file_pattern: Pattern para identificar archivos de esta categoría
+    """
+    logger.info(f"[{category_name}] Verificando archivos...")
+    any_uploaded = False
+    
+    links: list[str] = get_latest_links(url, limit=BACKUP_CONFIG.get(config_key, 2)) or []
+    
+    if links:
+        in_backup = [link.split("/")[-1] for link in links if link.split("/")[-1] in backed_up]
+        missing = [link for link in links if link.split("/")[-1] not in backed_up]
+        display = [(VERSION_REGEX.findall(f) or [f])[0] for f in in_backup]
+        logger.info(f"[{category_name}] En backup: {len(in_backup)} de {len(links)} - {display}")
         
-        for link in sys_missing:
+        for link in missing:
             file_name = link.split("/")[-1]
-            print(f"[SISTEMA] Nueva actualización encontrada: {file_name}")
+            logger.info(f"[{category_name}] Nuevo archivo encontrado: {file_name}")
             if download_asset(link, file_name):
                 if upload_to_dropbox(dbx, file_name, file_name):
                     backed_up.add(file_name)
                     any_uploaded = True
         
-        # Rotación Sistema
-        desired_sys_files = [link.split("/")[-1] for link in sys_links]
+        # Rotación de backups
+        desired_files = [link.split("/")[-1] for link in links]
         for f in list(backed_up):
-            if f.endswith(".zip") and ("firmware" in f.lower() or "v19" in f.lower()):
-                if f not in desired_sys_files:
+            if file_pattern in f:
+                if f not in desired_files:
                     if delete_from_dropbox(dbx, f):
                         backed_up.remove(f)
     else:
-        print("[SISTEMA] ADVERTENCIA: No se pudieron obtener las actualizaciones del sistema.")
+        logger.warning(f"[{category_name}] ADVERTENCIA: No se pudieron obtener los archivos.")
+    
     return any_uploaded
 
 def main():
     dbx = get_dropbox_client()
     if not dbx:
-        print("[CRÍTICO] Error: no se pudo conectar al almacenamiento. Abortando...")
+        logger.critical("[CRÍTICO] Error: no se pudo conectar al almacenamiento. Abortando...")
         return
 
-    print("[DROPBOX] Obteniendo estado del almacenamiento remoto...")
+    logger.info("[DROPBOX] Obteniendo estado del almacenamiento remoto...")
     backed_up: set[str] = get_dropbox_files(dbx)
     
     # Procesar secciones
@@ -290,27 +375,27 @@ def main():
     ])
 
     if any_uploaded:
-        print("[SISTEMA] Actualización de archivos completada.")
+        logger.info("[SISTEMA] Actualizacion de archivos completada.")
     else:
-        print("[SISTEMA] No hay nuevas actualizaciones.")
+        logger.info("[SISTEMA] No hay nuevas actualizaciones.")
 
     # Resumen final
-    print("\n" + "="*40)
-    print("ESTADO ACTUAL DEL BACKUP".center(40))
-    print("="*40)
+    logger.info("="*40)
+    logger.info("ESTADO ACTUAL DEL BACKUP".center(40))
+    logger.info("="*40)
     
     final_emu = sorted(f for f in backed_up if EMU_ASSET_IDENTIFIER in f)
-    emu_tags = [t for f in final_emu for t in re.findall(r'v\d+\.\d+[\d.\-\w]*', f)]
-    print(f"  Emu        : {emu_tags if emu_tags else 'ninguno'}")
+    emu_tags = [t for f in final_emu for t in TAG_REGEX.findall(f)]
+    logger.info(f"  Emu        : {emu_tags if emu_tags else 'ninguno'}")
 
     final_keys = [f for f in backed_up if f.endswith(".zip") and re.search(r'\d+\.\d+', f) and "firmware" not in f.lower()]
-    keys_display = [(re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in final_keys]
-    print(f"  Licencias  : {keys_display if keys_display else 'ninguna'}")
+    keys_display = [(VERSION_REGEX.findall(f) or [f])[0] for f in final_keys]
+    logger.info(f"  Licencias  : {keys_display if keys_display else 'ninguna'}")
 
     final_sys = [f for f in backed_up if f.endswith(".zip") and ("firmware" in f.lower() or "v19" in f.lower())]
-    sys_display = [(re.findall(r'\d+\.\d+[\d.]*\.zip', f) or [f])[0] for f in final_sys]
-    print(f"  Sistema    : {sys_display if sys_display else 'ninguno'}")
-    print("="*40)
+    sys_display = [(VERSION_REGEX.findall(f) or [f])[0] for f in final_sys]
+    logger.info(f"  Sistema    : {sys_display if sys_display else 'ninguno'}")
+    logger.info("="*40)
 
 if __name__ == "__main__":
     main()
