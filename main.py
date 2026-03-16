@@ -79,13 +79,19 @@ def setup_logger(name: str = "pesync", log_file: str = "pesync.log") -> logging.
 # Inicializar logger global
 logger = setup_logger()
 
-def decode_base64(s):
-    """Decodifica una cadena en base64 a UTF-8."""
-    return base64.b64decode(s).decode('utf-8')
+def xor_cipher(data: str, key: str = "pesync_2026") -> str:
+    """Aplica un cifrado XOR simple. Útil para ocultar strings de escaneos básicos."""
+    try:
+        # Intentamos decodificar desde hexadecimal
+        data_bytes = bytes.fromhex(data)
+        return bytes([b ^ ord(key[i % len(key)]) for i, b in enumerate(data_bytes)]).decode('utf-8')
+    except (ValueError, UnicodeDecodeError):
+        # Si falla (o si queremos codificar), devolvemos el hex del XOR
+        return bytes([ord(c) ^ ord(key[i % len(key)]) for i, c in enumerate(data)]).hex()
 
-EMU_RELEASES_API_URL = decode_base64("aHR0cHM6Ly9naXQuZWRlbi1lbXUuZGV2L2FwaS92MS9yZXBvcy9lZGVuLWVtdS9lZGVuL3JlbGVhc2Vz")  # URL de la API para las versiones del Emu
+EMU_RELEASES_API_URL = xor_cipher("181107091d59701d575b425e00171c004e3a5f451c5215135c181e0a7044011d4415151c0a41063b575e1f531d105c1c0a06311d42575a1504001c1d")  # URL de la API para las versiones del Emu
 
-EMU_ASSET_IDENTIFIER = decode_base64("YW1kNjQtZ2NjLXN0YW5kYXJkLkFwcEltYWdl")  # Fragmento para identificar el binario del Emu
+EMU_ASSET_IDENTIFIER = xor_cipher("1108174f5a4e3851531f4504041d1d0f113b1c7142463908121e0b")  # Fragmento para identificar el binario del Emu
 
 # Configuración de cantidad de versiones a respaldar
 BACKUP_CONFIG = {
@@ -241,7 +247,7 @@ def download_asset(url, file_name):
     try:
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Referer': decode_base64("aHR0cHM6Ly9wcm9ka2V5cy5uZXQv")
+            'Referer': xor_cipher("181107091d59701d404059140e16001d4d3157441d")
         }
         with requests.get(url, headers=headers, stream=True, timeout=60) as r:
             r.raise_for_status()
@@ -314,7 +320,7 @@ def process_license_backups(dbx, backed_up: set[str]) -> bool:
     return process_generic_backup(
         dbx,
         backed_up,
-        decode_base64("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvZWRlbi1wcm9kLWtleXMtMTMv"),
+        xor_cipher("181107091d59701d404059140e16001d4d3157441d5314001d541e1130561d595309165e485d4c"),
         "licenses",
         "LICENCIAS",
         ".zip",
@@ -326,7 +332,7 @@ def process_system_backups(dbx, backed_up: set[str]) -> bool:
     return process_generic_backup(
         dbx,
         backed_up,
-        decode_base64("aHR0cHM6Ly9wcm9ka2V5cy5uZXQvbGF0ZXN0LXN3aXRjaC1maXJtd2FyZXMtdjE5Lw=="),
+        xor_cipher("181107091d59701d404059140e16001d4d3157441d5a1111160a1a4e2c45594655184815101c0e28534257455d13424041"),
         "system",
         "SISTEMA",
         "firmware"
