@@ -119,6 +119,18 @@ def get_emu_releases(n: int = 2) -> list[dict[str, Any]]:
 def is_valid_link(link: str) -> bool:
     return link.startswith("https://") and link.endswith(".zip")
 
+def normalize_filename(filename: str) -> str:
+    """Normaliza nombre de archivo para comparación.
+    
+    Ejemplos:
+        Firmware.21.2.0.zip -> 21.2.0.zip
+        emu.v0.2.0-rc1.zip -> emu.v0.2.0-rc1.zip
+    """
+    # Eliminar prefijo "Firmware." para Vergleich
+    if filename.lower().startswith("firmware."):
+        return filename.split(".", 1)[-1]
+    return filename
+
 def get_latest_links(url: str, limit: int = 2, max_retries: int = 3) -> list[str]:
     for attempt in range(max_retries):
         try:
@@ -169,10 +181,10 @@ def get_dropbox_files(dbx) -> set[str]:
     """Returns the set of filenames currently in the Dropbox root folder."""
     try:
         result = dbx.files_list_folder("")
-        files: set[str] = {entry.name for entry in result.entries}
+        files: set[str] = {normalize_filename(entry.name) for entry in result.entries}
         while result.has_more:
             result = dbx.files_list_folder_continue(result.cursor)
-            files.update(entry.name for entry in result.entries)
+            files.update(normalize_filename(entry.name) for entry in result.entries)
         return files
     except Exception:
         logger.exception("Error al listar el almacenamiento remoto:")
@@ -195,14 +207,15 @@ def upload_to_dropbox(dbx, file_path, file_name):
                 commit = CommitInfo(path=f'/{file_name}', mode=WriteMode.overwrite)
 
                 #Chunks restantes
-                while cursor.offset < file_size:
+                while True:
                     remaining = file_size - cursor.offset
                     if remaining <= CHUNK_SIZE:
-                        # Último chunk
+                        # Último chunk - finish session
                         chunk = f.read(remaining)
                         dbx.files_upload_session_finish(chunk, cursor, commit)
+                        break
                     else:
-                        # Chunk intermedio
+                        # Chunk intermedio - append
                         chunk = f.read(CHUNK_SIZE)
                         dbx.files_upload_session_append_v2(chunk, cursor)
                         cursor.offset += len(chunk)
@@ -341,8 +354,10 @@ def process_generic_backup(
     links: list[str] = get_latest_links(url, limit=BACKUP_CONFIG.get(config_key, 2)) or []
     
     if links:
-        in_backup = [link.split("/")[-1] for link in links if link.split("/")[-1] in backed_up]
-        missing = [link for link in links if link.split("/")[-1] not in backed_up]
+        # Normalizar nombres para comparación
+        normalized_links = [normalize_filename(link.split("/")[-1]) for link in links]
+        in_backup = [f for f in backed_up if any(normalize_filename(f) == nl for nl in normalized_links)]
+        missing = [link for link, nl in zip(links, normalized_links) if nl not in backed_up]
         display = [(VERSION_REGEX.findall(f) or [f])[0] for f in in_backup]
         logger.info(f"[{category_name}] En backup: {len(in_backup)} de {len(links)} - {display}")
         
@@ -351,14 +366,15 @@ def process_generic_backup(
             logger.info(f"[{category_name}] Nuevo archivo encontrado: {file_name}")
             if download_asset(link, file_name):
                 if upload_to_dropbox(dbx, file_name, file_name):
-                    backed_up.add(file_name)
+                    backed_up.add(normalize_filename(file_name))
                     any_uploaded = True
         
         # Rotación de backups
-        desired_files = [link.split("/")[-1] for link in links]
+        desired_files = [normalize_filename(link.split("/")[-1]) for link in links]
         for f in list(backed_up):
             if file_pattern in f:
-                if f not in desired_files:
+                normalized_f = normalize_filename(f)
+                if normalized_f not in desired_files:
                     if delete_from_dropbox(dbx, f):
                         backed_up.remove(f)
     else:
