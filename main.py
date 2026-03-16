@@ -3,7 +3,6 @@ import os
 import requests # type: ignore
 import shutil
 import time
-import base64
 import logging
 import logging.handlers
 from typing import Any
@@ -12,16 +11,42 @@ import dropbox # type: ignore
 from dropbox.exceptions import ApiError # type: ignore
 from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo # type: ignore
 import re
-import json
 
-# Constantes de configuración
+# ==========================================
+# CONFIGURACIÓN Y CONSTANTES
+# ==========================================
 CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # segundos
 VERSION_REGEX = re.compile(r'\d+\.\d+[\d.]*\.zip')
 TAG_REGEX = re.compile(r'v\d+\.\d+[\d.\-]*\d')
 
-# Configuración del logger
+# Configuración de cantidad de versiones a respaldar
+BACKUP_CONFIG = {
+    "emu": 2,
+    "licenses": 2,
+    "system": 2
+}
+
+# ==========================================
+# SEGURIDAD Y CIFRADO
+# ==========================================
+def xor_cipher(data: str, key: str = "pesync_2026") -> str:
+    """Aplica un cifrado XOR simple. Útil para ocultar strings de escaneos básicos."""
+    try:
+        # Intentamos decodificar desde hexadecimal
+        data_bytes = bytes.fromhex(data)
+        return bytes([b ^ ord(key[i % len(key)]) for i, b in enumerate(data_bytes)]).decode('utf-8')
+    except (ValueError, UnicodeDecodeError):
+        # Si falla (o si queremos codificar), devolvemos el hex del XOR
+        return bytes([ord(c) ^ ord(key[i % len(key)]) for i, c in enumerate(data)]).hex()
+
+EMU_RELEASES_API_URL = xor_cipher("181107091d59701d575b425e00171c004e3a5f451c5215135c181e0a7044011d4415151c0a41063b575e1f531d105c1c0a06311d42575a1504001c1d")  # URL de la API para las versiones del Emu
+EMU_ASSET_IDENTIFIER = xor_cipher("1108174f5a4e3851531f4504041d1d0f113b1c7142463908121e0b")  # Fragmento para identificar el binario del Emu
+
+# ==========================================
+# LOGGING
+# ==========================================
 def setup_logger(name: str = "pesync", log_file: str = "pesync.log") -> logging.Logger:
     """Configura y retorna un logger con rotación de archivos."""
     logger = logging.getLogger(name)
@@ -79,49 +104,9 @@ def setup_logger(name: str = "pesync", log_file: str = "pesync.log") -> logging.
 # Inicializar logger global
 logger = setup_logger()
 
-def xor_cipher(data: str, key: str = "pesync_2026") -> str:
-    """Aplica un cifrado XOR simple. Útil para ocultar strings de escaneos básicos."""
-    try:
-        # Intentamos decodificar desde hexadecimal
-        data_bytes = bytes.fromhex(data)
-        return bytes([b ^ ord(key[i % len(key)]) for i, b in enumerate(data_bytes)]).decode('utf-8')
-    except (ValueError, UnicodeDecodeError):
-        # Si falla (o si queremos codificar), devolvemos el hex del XOR
-        return bytes([ord(c) ^ ord(key[i % len(key)]) for i, c in enumerate(data)]).hex()
-
-EMU_RELEASES_API_URL = xor_cipher("181107091d59701d575b425e00171c004e3a5f451c5215135c181e0a7044011d4415151c0a41063b575e1f531d105c1c0a06311d42575a1504001c1d")  # URL de la API para las versiones del Emu
-
-EMU_ASSET_IDENTIFIER = xor_cipher("1108174f5a4e3851531f4504041d1d0f113b1c7142463908121e0b")  # Fragmento para identificar el binario del Emu
-
-# Configuración de cantidad de versiones a respaldar
-BACKUP_CONFIG = {
-    "emu": 2,
-    "licenses": 2,
-    "system": 2
-}
-
-def delete_from_dropbox(dbx, file_name):
-    logger.info(f"Eliminando versión antigua: {file_name}...")
-    try:
-        dbx.files_delete_v2(f'/{file_name}')
-        return True
-    except Exception:
-        logger.exception("Error al eliminar:")
-        return False
-
-def get_emu_releases(n: int = 2) -> list[dict[str, Any]]:
-    try:
-        response = requests.get(EMU_RELEASES_API_URL, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
-        response.raise_for_status()
-        data = response.json()
-        if not data:
-            logger.warning("No se encontraron versiones.")
-            return []
-        return data[:n] # type: ignore
-    except Exception:
-        logger.exception("Error al obtener las versiones:")
-        return []
-
+# ==========================================
+# UTILIDADES DE RED Y AYUDANTES
+# ==========================================
 def is_valid_link(link: str) -> bool:
     return link.startswith("https://") and link.endswith(".zip")
 
@@ -136,6 +121,19 @@ def normalize_filename(filename: str) -> str:
     if filename.lower().startswith("firmware."):
         return filename.split(".", 1)[-1]
     return filename
+
+def get_emu_releases(n: int = 2) -> list[dict[str, Any]]:
+    try:
+        response = requests.get(EMU_RELEASES_API_URL, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
+        response.raise_for_status()
+        data = response.json()
+        if not data:
+            logger.warning("No se encontraron versiones.")
+            return []
+        return data[:n] # type: ignore
+    except Exception:
+        logger.exception("Error al obtener las versiones:")
+        return []
 
 def get_latest_links(url: str, limit: int = 2, max_retries: int = 3) -> list[str]:
     for attempt in range(max_retries):
@@ -164,6 +162,26 @@ def get_latest_links(url: str, limit: int = 2, max_retries: int = 3) -> list[str
                 return []
     return []
 
+def download_asset(url, file_name):
+    logger.info(f"Descargando: {file_name}...")
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'Referer': xor_cipher("181107091d59701d404059140e16001d4d3157441d")
+        }
+        with requests.get(url, headers=headers, stream=True, timeout=60) as r:
+            r.raise_for_status()
+            with open(file_name, 'wb') as f:
+                shutil.copyfileobj(r.raw, f)
+        logger.info("Descarga completada exitosamente.")
+        return True
+    except Exception:
+        logger.exception("Error al descargar:")
+        return False
+
+# ==========================================
+# INTERACCIONES CON DROPBOX
+# ==========================================
 def get_dropbox_client():
     try:
         app_key = os.environ["DROPBOX_APP_KEY"]
@@ -242,23 +260,18 @@ def upload_to_dropbox(dbx, file_path, file_name):
             except OSError:
                 pass
 
-def download_asset(url, file_name):
-    logger.info(f"Descargando: {file_name}...")
+def delete_from_dropbox(dbx, file_name):
+    logger.info(f"Eliminando versión antigua: {file_name}...")
     try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Referer': xor_cipher("181107091d59701d404059140e16001d4d3157441d")
-        }
-        with requests.get(url, headers=headers, stream=True, timeout=60) as r:
-            r.raise_for_status()
-            with open(file_name, 'wb') as f:
-                shutil.copyfileobj(r.raw, f)
-        logger.info("Descarga completada exitosamente.")
+        dbx.files_delete_v2(f'/{file_name}')
         return True
     except Exception:
-        logger.exception("Error al descargar:")
+        logger.exception("Error al eliminar:")
         return False
 
+# ==========================================
+# LÓGICA DE PROCESAMIENTO DE EMU (CORE)
+# ==========================================
 def process_emu_backups(dbx, backed_up: set[str]) -> bool:
     """Procesa el respaldo y rotación de versiones del Emu."""
     logger.info("[EMU] Verificando versiones...")
@@ -347,16 +360,7 @@ def process_generic_backup(
     file_pattern: str,
     exclude_pattern: str | None = None
 ) -> bool:
-    """Procesa respaldo genérico para una categoría de archivos.
-    
-    Args:
-        dbx: Cliente de Dropbox
-        backed_up: Set de archivos ya respaldados
-        url: URL remota para obtener archivos
-        config_key: Clave en BACKUP_CONFIG para límite de versiones
-        category_name: Nombre para logs (ej: "LICENCIAS")
-        file_pattern: Pattern para identificar archivos de esta categoría
-    """
+    """Procesa respaldo genérico para una categoría de archivos."""
     logger.info(f"[{category_name}] Verificando archivos...")
     any_uploaded = False
     
@@ -364,9 +368,7 @@ def process_generic_backup(
     
     if links:
         # Normalizar nombres para comparación
-        # remote_norm: mapeo de normalized_name -> raw_url_link
         remote_norm = {normalize_filename(link.split("/")[-1]): link for link in links}
-        # local_norm: mapeo de normalized_name -> raw_dropbox_filename
         local_norm = {
             normalize_filename(f): f for f in backed_up 
             if file_pattern in f.lower() and (not exclude_pattern or exclude_pattern not in f.lower())
@@ -398,6 +400,28 @@ def process_generic_backup(
     
     return any_uploaded
 
+# ==========================================
+# PUNTO DE ENTRADA (ENTRYPOINT)
+# ==========================================
+def display_backup_summary(backed_up: set[str]):
+    """Imprime un resumen formateado del estado actual del backup."""
+    logger.info("="*40)
+    logger.info("ESTADO ACTUAL DEL BACKUP".center(40))
+    logger.info("="*40)
+    
+    final_emu = sorted(f for f in backed_up if EMU_ASSET_IDENTIFIER in f)
+    emu_tags = [t for f in final_emu for t in TAG_REGEX.findall(f)]
+    logger.info(f"  Emu        : {emu_tags if emu_tags else 'ninguno'}")
+
+    final_keys = {normalize_filename(f) for f in backed_up if f.lower().endswith(".zip") and re.search(r'\d+\.\d+', f) and "firmware" not in f.lower()}
+    keys_display = [(VERSION_REGEX.findall(f) or [f])[0] for f in sorted(final_keys)]
+    logger.info(f"  Licencias  : {keys_display if keys_display else 'ninguna'}")
+
+    final_sys = {normalize_filename(f) for f in backed_up if f.lower().endswith(".zip") and ("firmware" in f.lower() or "v19" in f.lower())}
+    sys_display = [(VERSION_REGEX.findall(f) or [f])[0] for f in sorted(final_sys)]
+    logger.info(f"  Sistema    : {sys_display if sys_display else 'ninguno'}")
+    logger.info("="*40)
+
 def main():
     dbx = get_dropbox_client()
     if not dbx:
@@ -420,25 +444,6 @@ def main():
         logger.info("No hay nuevas actualizaciones.")
 
     display_backup_summary(backed_up)
-
-def display_backup_summary(backed_up: set[str]):
-    """Imprime un resumen formateado del estado actual del backup."""
-    logger.info("="*40)
-    logger.info("ESTADO ACTUAL DEL BACKUP".center(40))
-    logger.info("="*40)
-    
-    final_emu = sorted(f for f in backed_up if EMU_ASSET_IDENTIFIER in f)
-    emu_tags = [t for f in final_emu for t in TAG_REGEX.findall(f)]
-    logger.info(f"  Emu        : {emu_tags if emu_tags else 'ninguno'}")
-
-    final_keys = {normalize_filename(f) for f in backed_up if f.lower().endswith(".zip") and re.search(r'\d+\.\d+', f) and "firmware" not in f.lower()}
-    keys_display = [(VERSION_REGEX.findall(f) or [f])[0] for f in sorted(final_keys)]
-    logger.info(f"  Licencias  : {keys_display if keys_display else 'ninguna'}")
-
-    final_sys = {normalize_filename(f) for f in backed_up if f.lower().endswith(".zip") and ("firmware" in f.lower() or "v19" in f.lower())}
-    sys_display = [(VERSION_REGEX.findall(f) or [f])[0] for f in sorted(final_sys)]
-    logger.info(f"  Sistema    : {sys_display if sys_display else 'ninguno'}")
-    logger.info("="*40)
 
 if __name__ == "__main__":
     main()

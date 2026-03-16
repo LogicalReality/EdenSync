@@ -15,6 +15,9 @@ Esta herramienta está pensada para la gestión personal de respaldos y la autom
 - **Rotación Automática y Auto-Limpieza**: El script identifica y elimina automáticamente versiones obsoletas en la nube para mantener solo lo más reciente según la configuración, optimizando el espacio.
 - **Almacenamiento Seguro**: Integración con Dropbox para mantener redundancia de los componentes críticos, soportando subida de archivos de gran tamaño mediante fragmentación.
 - **Robustez con Fallback**: El script está diseñado para no fallar ante configuraciones incompletas, utilizando 2 versiones como valor de respaldo seguro.
+- **Registro y Resumen Detallado**: Implementación de un Console Logger para seguimiento en vivo y visualización de un resumen final de los componentes procesados.
+- **Mayor Estabilidad y Seguridad**: Peticiones de red optimizadas mediante `requests`, validación robusta de activos descargables y ofuscación de cadenas sensibles usando cifrado XOR.
+- **Filtrado Exclusivo**: Capacidad para ignorar patrones específicos (por ejemplo, excluir archivos firmware durante respaldos de licencias).
 
 ## 📋 Requisitos Previos
 
