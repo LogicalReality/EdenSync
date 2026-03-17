@@ -8,6 +8,14 @@ PESync es una herramienta de automatización en Python diseñada para gestionar 
 
 Esta herramienta está pensada para la gestión personal de respaldos y la automatización de la configuración del entorno de trabajo.
 
+```mermaid
+graph LR
+    A[Entorno Local] -- "setup_storage.py" --> B(Configuración .env)
+    B -- "test_sync.py" --> C{Validación}
+    C -- "main.py" --> D[Dropbox Cloud]
+    E[GitHub Actions] -- "Secrets" --> D
+```
+
 ## 🚀 Características
 
 - **Estado basado en Dropbox**: El script consulta directamente el almacenamiento remoto al iniciar para determinar qué recursos ya están respaldados, sin depender de archivos locales.
@@ -16,7 +24,8 @@ Esta herramienta está pensada para la gestión personal de respaldos y la autom
 - **Almacenamiento Seguro**: Integración con Dropbox para mantener redundancia de los componentes críticos, soportando subida de archivos de gran tamaño mediante fragmentación.
 - **Robustez con Fallback**: El script está diseñado para no fallar ante configuraciones incompletas, utilizando 2 versiones como valor de respaldo seguro.
 - **Registro y Resumen Detallado**: Implementación de un Console Logger para seguimiento en vivo y visualización de un resumen final de los componentes procesados.
-- **Mayor Estabilidad y Seguridad**: Peticiones de red optimizadas mediante `requests`, validación robusta de activos descargables y ofuscación de cadenas sensibles usando cifrado XOR.
+- **Peticiones Seguras y Validadas**: Peticiones de red optimizadas mediante `requests`, validación robusta de activos descargables.
+- **Verificación de Conexión**: Script dedicado para validar las credenciales almacenadas en el archivo `.env` y el acceso a Dropbox antes de iniciar procesos de sincronización.
 - **Filtrado Exclusivo**: Capacidad para ignorar patrones específicos (por ejemplo, excluir archivos firmware durante respaldos de licencias).
 
 ## 📋 Requisitos Previos
@@ -42,11 +51,28 @@ Para habilitar la sincronización remota, configura las siguientes variables de 
 | `DROPBOX_APP_SECRET` | Secreto de la API de Dropbox. |
 | `DROPBOX_REFRESH_TOKEN` | Token de actualización de sesión. |
 
-Para obtener estas credenciales, ejecuta el asistente de configuración:
+> [!CAUTION]
+> **SEGURIDAD LÓGICA**: Nunca subas el archivo `.env` a un repositorio público. Este archivo ya está incluido en el `.gitignore` por defecto para evitar fugas de credenciales.
+
+### Paso 1: Obtener Credenciales
+
+Para obtener estas credenciales, ejecuta el asistente interactivo:
 
 ```bash
 python setup_storage.py
 ```
+
+Sigue las instrucciones en pantalla para autorizar la aplicación en tu cuenta de Dropbox. Al finalizar, el script intentará crear/actualizar el archivo `.env` automáticamente.
+
+### Paso 2: Prueba de Conexión (Recomendado)
+
+Antes de la primera ejecución o tras actualizar tus credenciales, verifica que todo funcione correctamente:
+
+```bash
+python test_sync.py
+```
+
+Este script valida que las llaves guardadas en el archivo `.env` (u obtenidas vía Secrets) sean funcionales y tengan los permisos necesarios.
 
 ### Configuración de Versiones
 
@@ -63,9 +89,9 @@ BACKUP_CONFIG = {
 > [!NOTE]
 > El script utiliza un sistema de **rotación basada en la fuente**. Si una versión ya no está entre las `N` más recientes de la fuente oficial, será eliminada automáticamente de Dropbox para dejar espacio a las nuevas.
 
-## 🏃 Ejecución
+### Paso 3: Sincronización
 
-Para iniciar el proceso de sincronización:
+Una vez validada la conexión, inicia el proceso de sincronización:
 
 ```bash
 python main.py
@@ -75,4 +101,5 @@ python main.py
 
 - `main.py`: Lógica central del sistema de sincronización.
 - `setup_storage.py`: Utilidad de configuración inicial para el almacenamiento en la nube.
+- `test_sync.py`: Script de validación de conexión y credenciales (`.env`).
 - `requirements.txt`: Definición de dependencias.
