@@ -1,5 +1,6 @@
 from __future__ import annotations
 import os
+from dotenv import load_dotenv # type: ignore
 import requests # type: ignore
 import shutil
 import time
@@ -15,6 +16,7 @@ import re
 # ==========================================
 # CONFIGURACIÓN Y CONSTANTES
 # ==========================================
+load_dotenv()
 CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # segundos
@@ -47,8 +49,16 @@ EMU_ASSET_IDENTIFIER = xor_cipher("1108174f5a4e3851531f4504041d1d0f113b1c7142463
 # ==========================================
 # LOGGING
 # ==========================================
-def setup_logger(name: str = "pesync", log_file: str = "pesync.log") -> logging.Logger:
-    """Configura y retorna un logger con rotación de archivos."""
+def setup_logger(name: str = "pesync", log_file: str | None = None) -> logging.Logger:
+    """Configura y retorna un logger con rotación de archivos y nombre por sesión."""
+    if log_file is None:
+        # Generar nombre único por sesión: logs/pesync_20240316_203000.log
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        log_file = os.path.join("logs", f"pesync_{timestamp}.log")
+        
+    # Asegurar que el directorio de logs existe
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     
@@ -446,6 +456,12 @@ def display_backup_summary(backed_up: set[str]):
     logger.info("="*40)
 
 def main():
+    # Banner de inicio de sesión
+    logger.info("="*60)
+    logger.info("INICIANDO NUEVA SESION DE SINCRONIZACION".center(60))
+    logger.info(f"Sesion: {time.strftime('%Y-%m-%d %H:%M:%S')}".center(60))
+    logger.info("="*60)
+
     dbx = get_dropbox_client()
     if not dbx:
         logger.critical("[CRÍTICO] Error: no se pudo conectar al almacenamiento. Abortando...")

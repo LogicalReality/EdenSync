@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .kilocodemodes
 .kilocode
+.env
+test_sync.py
+logs/
