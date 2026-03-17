@@ -69,10 +69,24 @@ def main():
         print(f"3) Nombre: DROPBOX_REFRESH_TOKEN")
         print(f"   Valor:  {refresh_token}\n")
         print("=" * 60)
-        print("¡Una vez los configures, empuja los archivos a GitHub y corre el Action!")
+        
+        # Intentar escribir automáticamente en .env
+        try:
+            with open(".env", "w", encoding="utf-8") as env_file:
+                env_file.write(f"DROPBOX_APP_KEY={app_key}\n")
+                env_file.write(f"DROPBOX_APP_SECRET={app_secret}\n")
+                env_file.write(f"DROPBOX_REFRESH_TOKEN={refresh_token}\n")
+            print("✅ El archivo .env ha sido actualizado automáticamente.")
+        except Exception as e:
+            print(f"⚠️ No se pudo escribir el archivo .env: {e}")
+            print("Por favor, copia los valores manualmente.")
+            
+        print("\n¡Una vez los configures, empuja los archivos a GitHub y corre el Action!")
     else:
         print(f"\nError al obtener el token. Código: {response.status_code}")
         print(response.text)
+    
+    input("\nPresiona ENTER para cerrar esta ventana...")
 
 if __name__ == "__main__":
     main()
