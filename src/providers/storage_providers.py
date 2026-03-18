@@ -208,8 +208,12 @@ class GoogleDriveProvider(StorageProvider):
     def __init__(self):
         self.service: Any = None
         self.credentials: Any = None
-        self.folder_id: str = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "root")
-        self.folder_name: str = os.environ.get("GOOGLE_DRIVE_FOLDER", "")
+        self.folder_id: str = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
+        if not self.folder_id:
+            self.folder_id = "root"
+        self.folder_name: str = os.environ.get("GOOGLE_DRIVE_FOLDER", "").strip()
+        if not self.folder_name:
+            self.folder_name = "PESync_Backup"
         self.session = requests.Session()
     
     def connect(self) -> bool:
