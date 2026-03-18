@@ -5,7 +5,6 @@ Proporciona una abstracción para soportar múltiples servicios de nube (Dropbox
 """
 from __future__ import annotations
 import os
-import logging
 from abc import ABC, abstractmethod
 from typing import Any, Set
 from tqdm import tqdm  # type: ignore
@@ -14,11 +13,10 @@ from dropbox.exceptions import ApiError  # type: ignore
 from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo  # type: ignore
 import requests # type: ignore
 
+from src.utils.helpers import logger
+
 # Tamaño de chunk (fijado a 8MB para rendimiento equilibrado y feedback visual)
 CHUNK_SIZE = 8 * 1024 * 1024
-
-# Configurar logger
-logger = logging.getLogger("pesync_providers")
 
 
 # ==========================================
@@ -30,27 +28,27 @@ class StorageProvider(ABC):
     @abstractmethod
     def connect(self) -> bool:
         """Conecta al servicio de almacenamiento. Retorna True si la conexión fue exitosa."""
-        pass
+        return False
     
     @abstractmethod
     def list_files(self) -> set[str]:
         """Lista todos los archivos en el almacenamiento remoto."""
-        pass
+        return set()
     
     @abstractmethod
     def upload_file(self, local_path: str, remote_name: str) -> bool:
         """Sube un archivo al almacenamiento remoto."""
-        pass
+        return False
     
     @abstractmethod
     def delete_file(self, file_name: str) -> bool:
         """Elimina un archivo del almacenamiento remoto."""
-        pass
+        return False
     
     @abstractmethod
     def get_provider_name(self) -> str:
         """Retorna el nombre del proveedor."""
-        pass
+        return ""
 
 
 # ==========================================

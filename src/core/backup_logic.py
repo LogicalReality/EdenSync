@@ -1,198 +1,39 @@
 # pyre-ignore-all-errors[21]
 """PESync - Herramienta de sincronización y respaldo para Pro Evolution Soccer."""
 from __future__ import annotations
-import os
-from dotenv import load_dotenv # type: ignore
-import requests # type: ignore
-import shutil
 import time
-import logging
-import logging.handlers
 from typing import Any
-from bs4 import BeautifulSoup # type: ignore
+from dotenv import load_dotenv # type: ignore
 import re
-from tqdm import tqdm # type: ignore
 
 # Importar proveedores de almacenamiento
-from storage_providers import (
+from src.providers.storage_providers import (
     get_storage_provider,
-    StorageProvider,
-    DropboxProvider,
-    GoogleDriveProvider
+    StorageProvider
+)
+
+# Importar utilidades y red
+from src.utils.helpers import (
+    logger,
+    BACKUP_CONFIG,
+    EMU_ASSET_IDENTIFIER,
+    xor_cipher,
+    normalize_filename,
+    is_license_file,
+    is_system_file,
+    VERSION_REGEX,
+    TAG_REGEX
+)
+from src.network.http_utils import (
+    get_emu_releases,
+    get_latest_links,
+    download_asset
 )
 
 # ==========================================
-# CONFIGURACIÓN Y CONSTANTES
+# CONFIGURACIÓN INICIAL
 # ==========================================
 load_dotenv()
-CHUNK_SIZE = 4 * 1024 * 1024  # 4MB
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # segundos
-VERSION_REGEX = re.compile(r'\d+\.\d+[\d.]*\.zip')
-TAG_REGEX = re.compile(r'v\d+\.\d+[\d.\-]*\d')
-
-# Configuración de cantidad de versiones a respaldar
-BACKUP_CONFIG = {
-    "emu": 2,
-    "licenses": 2,
-    "system": 2
-}
-
-# ==========================================
-# SEGURIDAD Y CIFRADO
-# ==========================================
-def xor_cipher(data: str, key: str = "pesync_2026") -> str:
-    """Aplica un cifrado XOR simple. Útil para ocultar strings de escaneos básicos."""
-    try:
-        # Intentamos decodificar desde hexadecimal
-        data_bytes = bytes.fromhex(data)
-        return bytes([b ^ ord(key[i % len(key)]) for i, b in enumerate(data_bytes)]).decode('utf-8')
-    except (ValueError, UnicodeDecodeError):
-        # Si falla (o si queremos codificar), devolvemos el hex del XOR
-        return bytes([ord(c) ^ ord(key[i % len(key)]) for i, c in enumerate(data)]).hex()
-
-EMU_RELEASES_API_URL = xor_cipher("181107091d59701d575b425e00171c004e3a5f451c5215135c181e0a7044011d4415151c0a41063b575e1f531d105c1c0a06311d42575a1504001c1d")  # URL de la API para las versiones del Emu
-EMU_ASSET_IDENTIFIER = xor_cipher("1108174f5a4e3851531f4504041d1d0f113b1c7142463908121e0b")  # Fragmento para identificar el binario del Emu
-
-# ==========================================
-# LOGGING
-# ==========================================
-def setup_logger(name: str = "pesync", log_file: str | None = None) -> logging.Logger:
-    """Configura y retorna un logger con rotación de archivos y nombre por sesión."""
-    if log_file is None:
-        # Generar nombre único por sesión: logs/pesync_20240316_203000.log
-        timestamp = time.strftime("%Y%m%d_%H%M%S")
-        log_file = os.path.join("logs", f"pesync_{timestamp}.log")
-        
-    # Asegurar que el directorio de logs existe
-    os.makedirs(os.path.dirname(log_file), exist_ok=True)
-
-    logger = logging.getLogger(name)
-    logger.setLevel(logging.DEBUG)
-    
-    # Evitar duplicados si el logger ya está configurado
-    if logger.handlers:
-        return logger
-
-    # Formato con timestamp y nombre del módulo    
-    formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(lineno)d - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
-    
-    # Console handler para salida rapida (INFO y superiores)
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-    
-    log_dir = os.path.dirname(log_file)
-    try:
-        if log_dir:
-            os.makedirs(log_dir, exist_ok=True)
-        file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=1*1024*1024,  # 1MB por archivo - suficiente para GHA y local
-            backupCount=1,  # Mantener 1 archivo de backup
-            encoding='utf-8'
-        )
-        file_handler.setLevel(logging.DEBUG)
-        file_handler.setFormatter(formatter)
-        logger.addHandler(file_handler)
-    except OSError as e:
-        logger.error(f"No se pudo inicializar log en archivo '{log_file}': {e}.")
-    
-    return logger
-
-# Inicializar logger global
-logger = setup_logger()
-
-# ==========================================
-# UTILIDADES DE RED Y AYUDANTES
-# ==========================================
-def is_valid_link(link: str) -> bool:
-    return link.startswith("https://") and link.endswith(".zip")
-
-def normalize_filename(filename: str) -> str:
-    """Normaliza nombre de archivo para comparación.
-    
-    Ejemplos:
-        Firmware.21.2.0.zip -> 21.2.0.zip
-        emu.v0.2.0-rc1.zip -> emu.v0.2.0-rc1.zip
-    """
-    # Eliminar prefijo "Firmware." para Vergleich
-    if filename.lower().startswith("firmware."):
-        return filename.split(".", 1)[-1]
-    return filename
-
-def get_emu_releases(n: int = 2) -> list[dict[str, Any]]:
-    try:
-        response = requests.get(EMU_RELEASES_API_URL, headers={'User-Agent': 'Mozilla/5.0'}, timeout=20)
-        response.raise_for_status()
-        data = response.json()
-        if not data:
-            logger.warning("No se encontraron versiones.")
-            return []
-        return data[:n] # type: ignore
-    except Exception:
-        logger.exception("Error al obtener las versiones:")
-        return []
-
-def get_latest_links(url: str, limit: int = 2, max_retries: int = 3) -> list[str]:
-    for attempt in range(max_retries):
-        try:
-            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
-            response.raise_for_status()
-            html = response.text
-
-            soup = BeautifulSoup(html, 'html.parser')
-            links: list[str] = [str(a['href']) for a in soup.find_all('a', href=True) if is_valid_link(str(a['href']))]
-
-            if not links:
-                logger.critical("No se encontraron recursos válidos. ¡La estructura remota podría haber cambiado!")
-                return []
-
-            unique_links: list[str] = list(dict.fromkeys(links))
-            return unique_links[:limit] # type: ignore
-
-        except Exception:
-            logger.warning(f"Intento {attempt + 1} fallido:")
-            if attempt < max_retries - 1:
-                logger.info("Reintentando en 5 segundos...")
-                time.sleep(RETRY_DELAY)
-            else:
-                logger.error("Máximo de reintentos alcanzado.")
-                return []
-    return []
-
-def download_asset(url, file_name):
-    logger.info(f"Descargando: {file_name}...")
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-            'Referer': xor_cipher("181107091d59701d404059140e16001d4d3157441d")
-        }
-        with requests.get(url, headers=headers, stream=True, timeout=60) as r:
-            r.raise_for_status()
-            total_size = int(r.headers.get('content-length', 0))
-            
-            with open(file_name, 'wb') as f, tqdm(
-                total=total_size,
-                unit='iB',
-                unit_scale=True,
-                desc=f"Descargando {file_name}",
-                leave=False
-            ) as bar:
-                for chunk in r.iter_content(chunk_size=8192):
-                    size = f.write(chunk)
-                    bar.update(size)
-                    
-        logger.info("Descarga completada exitosamente.")
-        return True
-    except Exception:
-        logger.exception("Error al descargar:")
-        return False
-
 # ==========================================
 # INTERACCIONES CON ALMACENAMIENTO (PROVEEDOR ABSTRACTO)
 # ==========================================
@@ -362,13 +203,6 @@ def process_generic_backup(
 # ==========================================
 # PUNTO DE ENTRADA (ENTRYPOINT)
 # ==========================================
-def is_license_file(f: str) -> bool:
-    f_low = f.lower()
-    return f_low.endswith(".zip") and bool(re.search(r'\d+\.\d+', f)) and "firmware" not in f_low
-
-def is_system_file(f: str) -> bool:
-    f_low = f.lower()
-    return f_low.endswith(".zip") and ("firmware" in f_low or "v19" in f_low)
 
 def display_backup_summary(backed_up: set[str]):
     """Imprime un resumen formateado del estado actual del backup."""
@@ -410,12 +244,12 @@ def main():
     logger.info(f"[{provider_name}] Obteniendo estado del almacenamiento remoto...")
     backed_up: set[str] = provider.list_files()
     
-    # Procesar secciones
-    any_uploaded = any([
-        process_emu_backups(provider, backed_up),
-        process_license_backups(provider, backed_up),
-        process_system_backups(provider, backed_up)
-    ])
+    # Procesar secciones individualmente para asegurar orden predecible y evitar short-circuit accidentales
+    emu_uploaded = process_emu_backups(provider, backed_up)
+    lic_uploaded = process_license_backups(provider, backed_up)
+    sys_uploaded = process_system_backups(provider, backed_up)
+    
+    any_uploaded = emu_uploaded or lic_uploaded or sys_uploaded
 
     if any_uploaded:
         logger.info("Actualizacion de archivos completada.")

@@ -1,0 +1,113 @@
+# pyre-ignore-all-errors[21]
+from __future__ import annotations
+import os
+import time
+import logging
+import logging.handlers
+import re
+
+# ==========================================
+# CONSTANTES GLOBALES
+# ==========================================
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # segundos
+VERSION_REGEX = re.compile(r'\d+\.\d+[\d.]*\.zip')
+TAG_REGEX = re.compile(r'v\d+\.\d+[\d.\-]*\d')
+
+# Configuración de cantidad de versiones a respaldar
+BACKUP_CONFIG = {
+    "emu": 2,
+    "licenses": 2,
+    "system": 2
+}
+
+# ==========================================
+# SEGURIDAD Y CIFRADO
+# ==========================================
+def xor_cipher(data: str, key: str = "pesync_2026") -> str:
+    """Aplica un cifrado XOR simple. Útil para ocultar strings de escaneos básicos."""
+    try:
+        # Intentamos decodificar desde hexadecimal
+        data_bytes = bytes.fromhex(data)
+        return bytes([b ^ ord(key[i % len(key)]) for i, b in enumerate(data_bytes)]).decode('utf-8')
+    except (ValueError, UnicodeDecodeError):
+        # Si falla (o si queremos codificar), devolvemos el hex del XOR
+        return bytes([ord(c) ^ ord(key[i % len(key)]) for i, c in enumerate(data)]).hex()
+
+EMU_RELEASES_API_URL = xor_cipher("181107091d59701d575b425e00171c004e3a5f451c5215135c181e0a7044011d4415151c0a41063b575e1f531d105c1c0a06311d42575a1504001c1d")  # URL de la API para las versiones del Emu
+EMU_ASSET_IDENTIFIER = xor_cipher("1108174f5a4e3851531f4504041d1d0f113b1c7142463908121e0b")  # Fragmento para identificar el binario del Emu
+
+# ==========================================
+# LOGGING
+# ==========================================
+def setup_logger(name: str = "pesync", log_file: str | None = None) -> logging.Logger:
+    """Configura y retorna un logger con rotación de archivos y nombre por sesión."""
+    if log_file is None:
+        # Generar nombre único por sesión: logs/pesync_20240316_203000.log
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        log_file = os.path.join("logs", f"pesync_{timestamp}.log")
+        
+    # Asegurar que el directorio de logs existe
+    os.makedirs(os.path.dirname(log_file), exist_ok=True)
+
+    logger = logging.getLogger(name)
+    logger.setLevel(logging.DEBUG)
+    
+    # Evitar duplicados si el logger ya está configurado
+    if logger.handlers:
+        return logger
+
+    # Formato con timestamp y nombre del módulo    
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(module)s:%(lineno)d - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # Console handler para salida rapida (INFO y superiores)
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+    logger.addHandler(console_handler)
+    
+    log_dir = os.path.dirname(log_file)
+    try:
+        if log_dir:
+            os.makedirs(log_dir, exist_ok=True)
+        file_handler = logging.handlers.RotatingFileHandler(
+            log_file,
+            maxBytes=1*1024*1024,  # 1MB por archivo - suficiente para GHA y local
+            backupCount=1,  # Mantener 1 archivo de backup
+            encoding='utf-8'
+        )
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        logger.addHandler(file_handler)
+    except OSError as e:
+        logger.error(f"No se pudo inicializar log en archivo '{log_file}': {e}.")
+    
+    return logger
+
+# Inicializar logger global para uso en utilidades
+logger = setup_logger()
+
+# ==========================================
+# AYUDANTES (HELPERS)
+# ==========================================
+def normalize_filename(filename: str) -> str:
+    """Normaliza nombre de archivo para comparación.
+    
+    Ejemplos:
+        Firmware.21.2.0.zip -> 21.2.0.zip
+        emu.v0.2.0-rc1.zip -> emu.v0.2.0-rc1.zip
+    """
+    if filename.lower().startswith("firmware."):
+        return filename.split(".", 1)[-1]
+    return filename
+
+def is_license_file(f: str) -> bool:
+    f_low = f.lower()
+    return f_low.endswith(".zip") and bool(re.search(r'\d+\.\d+', f)) and "firmware" not in f_low
+
+def is_system_file(f: str) -> bool:
+    f_low = f.lower()
+    return f_low.endswith(".zip") and ("firmware" in f_low or "v19" in f_low)

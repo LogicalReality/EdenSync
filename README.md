@@ -117,9 +117,14 @@ Una vez validada la conexión, inicia el proceso de sincronización:
 python main.py
 ```
 
-## 🛠 Estructura
+## 🛠 Estructura (Arquitectura Modular)
 
-- `main.py`: Lógica central del sistema de sincronización.
-- `setup_storage.py`: Utilidad de configuración inicial para el almacenamiento en la nube.
-- `test_sync.py`: Script de validación de conexión y credenciales (`.env`).
-- `requirements.txt`: Definición de dependencias.
+El proyecto sigue principios de Clean Code, dividiendo las responsabilidades en módulos independientes:
+
+- `main.py`: Punto de entrada principal que orquesta la lógica de sincronización (alta cohesión).
+- `storage_providers.py`: Gestiona la integración con los proveedores de almacenamiento en la nube (Dropbox, Google Drive).
+- `network.py`: Centraliza todas las operaciones de red y descargas HTTP usando `requests`.
+- `utils.py`: Módulo de herramientas compartidas (formateo, seguridad, logging centralizado).
+- `setup_storage.py`: Utilidad de configuración inicial (OAuth) para el almacenamiento en la nube.
+- `test_sync.py`: Script de validación rápida de conexión y credenciales (`.env`).
+- `requirements.txt`: Definición de dependencias del proyecto.

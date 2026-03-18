@@ -2,8 +2,13 @@
 import os
 import logging
 from dotenv import load_dotenv # type: ignore
-from main import setup_logger # type: ignore
-from storage_providers import get_storage_provider, DropboxProvider, GoogleDriveProvider
+import sys
+import os
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+
+from src.utils.helpers import setup_logger # type: ignore
+from src.providers.storage_providers import get_storage_provider, DropboxProvider, GoogleDriveProvider
 
 # Configurar logger para el test
 logger = setup_logger("pesync_test")
@@ -32,14 +37,15 @@ def test_dropbox():
     
     # 2. Intentar inicializar cliente
     print("\nConectando con Dropbox...")
-    dbx = get_dropbox_client()
+    provider = DropboxProvider()
     
-    if not dbx:
+    if not provider.connect():
         print("[ERROR] No se pudo inicializar el cliente de Dropbox. Revisa tus credenciales.")
         return False
     
     # 3. Prueba de llamada a la API
     try:
+        dbx = provider.dbx
         account = dbx.users_get_current_account()
         print(f"[OK] CONEXIÓN EXITOSA!")
         print(f"   Cuenta: {account.name.display_name} ({account.email})")
