@@ -67,29 +67,16 @@ def download_asset(url, file_name):
         }
         with requests.get(url, headers=headers, stream=True, timeout=60) as r:
             r.raise_for_status()
-            total_size = int(r.headers.get('content-length', 0))
             
             with open(file_name, 'wb') as f:
-                with Progress(
-                    TextColumn("[progress.description]{task.description}"),
-                    BarColumn(),
-                    "[progress.percentage]{task.percentage:>3.0f}%",
-                    "•",
-                    DownloadColumn(),
-                    "•",
-                    TransferSpeedColumn(),
-                    "•",
-                    TimeRemainingColumn(),
-                    transient=False
-                ) as progress:
-                    task = progress.add_task("Descargando nueva versión", total=total_size)
-                    # Usar un tamaño de chunk mayor (1MB) para reducir sobrecarga de actualizaciones de progreso
-                    for chunk in r.iter_content(chunk_size=1024 * 1024):
-                        size = f.write(chunk)
-                        progress.update(task, advance=size)
+                # Usar chunk de 1MB
+                for chunk in r.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
                     
-        logger.info("Descarga completada exitosamente.")
+        logger.info(f"Descarga completada exitosamente: {file_name}")
         return True
     except Exception:
-        logger.exception("Error al descargar:")
+        logger.exception(f"Error al descargar {file_name}:")
         return False
+
