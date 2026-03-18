@@ -26,7 +26,8 @@ from src.utils.helpers import (
     is_license_file,
     is_system_file,
     VERSION_REGEX,
-    TAG_REGEX
+    TAG_REGEX,
+    create_shared_progress
 )
 from src.network.http_utils import (
     get_emu_releases,
@@ -64,21 +65,22 @@ def sync_to_storage(
         try:
             logger.info(f"[SYNC] Descargando {len(all_items_to_download)} archivos en paralelo...")
 
-            def _download(item: tuple[str, str, str]) -> str | None:
+            def _download(item: tuple[str, str, str], progress_bar: Any) -> str | None:
                 download_url, file_name, category = item
                 local_path = os.path.join(temp_dir, file_name)
                 logger.info(f"[{category}] Descargando: {file_name}")
-                if download_asset(download_url, local_path):
+                if download_asset(download_url, local_path, progress_bar):
                     return local_path
                 logger.error(f"[{category}] Fallo al descargar: {file_name}")
                 return None
 
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = {executor.submit(_download, item): item for item in all_items_to_download}
-                for future in as_completed(futures):
-                    result = future.result()
-                    if result:
-                        downloaded_paths.append(result)
+            with create_shared_progress() as progress:
+                with ThreadPoolExecutor(max_workers=4) as executor:
+                    futures = {executor.submit(_download, item, progress): item for item in all_items_to_download}
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result:
+                            downloaded_paths.append(result)
 
             logger.info(f"[SYNC] {len(downloaded_paths)}/{len(all_items_to_download)} archivos descargados correctamente.")
 

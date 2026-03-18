@@ -12,7 +12,8 @@ from dropbox.exceptions import ApiError  # type: ignore
 from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo  # type: ignore
 import requests # type: ignore
 from concurrent.futures import ThreadPoolExecutor
-from src.utils.helpers import logger  # pyre-ignore[21]
+from rich.progress import Progress
+from src.utils.helpers import logger, create_shared_progress  # pyre-ignore[21]
 
 # Tamaño de chunk (fijado a 32MB para alto rendimiento en conexiones modernas)
 CHUNK_SIZE = 32 * 1024 * 1024
@@ -34,7 +35,7 @@ class StorageProvider(ABC):
         return set()
     
     @abstractmethod
-    def upload_file(self, local_path: str, remote_name: str) -> bool:
+    def upload_file(self, local_path: str, remote_name: str, progress: Progress | None = None) -> bool:
         """Sube un archivo al almacenamiento remoto."""
         return False
 
@@ -102,7 +103,7 @@ class DropboxProvider(StorageProvider):
             logger.exception("Error al listar archivos en Dropbox:")
             return set()
     
-    def upload_file(self, local_path: str, remote_name: str) -> bool:
+    def upload_file(self, local_path: str, remote_name: str, progress: Progress | None = None) -> bool:
         """Sube un archivo a Dropbox con soporte para archivos grandes."""
         if not self.dbx:
             logger.error("Cliente de Dropbox no inicializado.")
@@ -111,9 +112,16 @@ class DropboxProvider(StorageProvider):
         logger.info(f"[DROPBOX] Subiendo: {remote_name}...")
         try:
             file_size = os.path.getsize(local_path)
+            
+            task_id = None
+            if progress is not None:
+                task_id = progress.add_task(description="Upload", filename=remote_name, total=file_size)
+                
             with open(local_path, 'rb') as f:
                 if file_size <= CHUNK_SIZE:
                     self.dbx.files_upload(f.read(), f'/{remote_name}', mode=WriteMode.overwrite)
+                    if progress is not None and task_id is not None:
+                        progress.update(task_id, advance=file_size)
                 else:
                     # Upload session para archivos grandes
                     chunk = f.read(CHUNK_SIZE)
@@ -124,17 +132,24 @@ class DropboxProvider(StorageProvider):
                     )
                     commit = CommitInfo(path=f'/{remote_name}', mode=WriteMode.overwrite)
                     
+                    if progress is not None and task_id is not None:
+                        progress.update(task_id, advance=len(chunk))
+                    
                     # Subir chunks restantes
                     while True:
                         remaining = file_size - cursor.offset
                         if remaining <= CHUNK_SIZE:
                             chunk = f.read(remaining)
                             self.dbx.files_upload_session_finish(chunk, cursor, commit)
+                            if progress is not None and task_id is not None:
+                                progress.update(task_id, advance=len(chunk))
                             break
                         else:
                             chunk = f.read(CHUNK_SIZE)
                             self.dbx.files_upload_session_append_v2(chunk, cursor)
                             cursor.offset += len(chunk)
+                            if progress is not None and task_id is not None:
+                                progress.update(task_id, advance=len(chunk))
             
             logger.info("[DROPBOX] Archivo subido correctamente.")
             return True
@@ -172,8 +187,9 @@ class DropboxProvider(StorageProvider):
         if not file_paths:
             return True
         logger.info(f"[DROPBOX] Iniciando subida paralela de {len(file_paths)} archivos...")
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            results = list(executor.map(lambda p: self.upload_file(p, os.path.basename(p)), file_paths))
+        with create_shared_progress() as progress:
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                results = list(executor.map(lambda p: self.upload_file(p, os.path.basename(p), progress), file_paths))
         return all(results)
 
     def get_provider_name(self) -> str:
@@ -292,7 +308,7 @@ class GoogleDriveProvider(StorageProvider):
             logger.exception("Error al listar archivos en Google Drive:")
             return set()
     
-    def upload_file(self, local_path: str, remote_name: str) -> bool:
+    def upload_file(self, local_path: str, remote_name: str, progress: Progress | None = None) -> bool:
         """Sube un archivo a Google Drive."""
         if not self.service:
             logger.error("Cliente de Google Drive no inicializado.")
@@ -307,6 +323,10 @@ class GoogleDriveProvider(StorageProvider):
             access_token = self.credentials.token
             
             file_size = os.path.getsize(local_path)
+            
+            task_id = None
+            if progress is not None:
+                task_id = progress.add_task(description="Upload", filename=remote_name, total=file_size)
             
             # 1. Iniciar sesión de carga resumible
             init_url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable"
@@ -346,6 +366,9 @@ class GoogleDriveProvider(StorageProvider):
                     
                     # PUT del chunk
                     chunk_response = self.session.put(upload_url, headers=headers, data=chunk, timeout=300)
+                    
+                    if progress is not None and task_id is not None:
+                        progress.update(task_id, advance=chunk_len)
                     
                     if chunk_response.status_code in [200, 201]:
                         # Carga finalizada con éxito
@@ -412,8 +435,9 @@ class GoogleDriveProvider(StorageProvider):
         if not file_paths:
             return True
         logger.info(f"[GDRIVE] Iniciando subida paralela de {len(file_paths)} archivos...")
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            results = list(executor.map(lambda p: self.upload_file(p, os.path.basename(p)), file_paths))
+        with create_shared_progress() as progress:
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                results = list(executor.map(lambda p: self.upload_file(p, os.path.basename(p), progress), file_paths))
         return all(results)
 
     def get_provider_name(self) -> str:

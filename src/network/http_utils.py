@@ -1,10 +1,11 @@
 # pyre-ignore-all-errors[21]
 from __future__ import annotations
+import os
 import requests # type: ignore
 import time
 from typing import Any
 from bs4 import BeautifulSoup # type: ignore
-from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn
+from rich.progress import Progress
 
 # Importar herramientas locales
 from src.utils.helpers import (  # pyre-ignore[21]
@@ -58,7 +59,7 @@ def get_latest_links(url: str, limit: int = 2, max_retries: int = MAX_RETRIES) -
                 return []
     return []
 
-def download_asset(url, file_name):
+def download_asset(url: str, file_name: str, progress: Progress | None = None) -> bool:
     logger.info(f"Descargando: {file_name}...")
     try:
         headers = {
@@ -68,11 +69,18 @@ def download_asset(url, file_name):
         with requests.get(url, headers=headers, stream=True, timeout=60) as r:
             r.raise_for_status()
             
+            total_size = int(r.headers.get('content-length', 0))
+            task_id = None
+            if progress is not None:
+                task_id = progress.add_task(description="Download", filename=os.path.basename(file_name), total=total_size)
+            
             with open(file_name, 'wb') as f:
                 # Usar chunk de 1MB
                 for chunk in r.iter_content(chunk_size=1024 * 1024):
                     if chunk:
                         f.write(chunk)
+                        if progress is not None and task_id is not None:
+                            progress.update(task_id, advance=len(chunk))
                     
         logger.info(f"Descarga completada exitosamente: {file_name}")
         return True
