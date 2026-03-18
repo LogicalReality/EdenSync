@@ -11,6 +11,7 @@ import logging.handlers
 from typing import Any
 from bs4 import BeautifulSoup # type: ignore
 import re
+from tqdm import tqdm # type: ignore
 
 # Importar proveedores de almacenamiento
 from storage_providers import (
@@ -173,8 +174,19 @@ def download_asset(url, file_name):
         }
         with requests.get(url, headers=headers, stream=True, timeout=60) as r:
             r.raise_for_status()
-            with open(file_name, 'wb') as f:
-                shutil.copyfileobj(r.raw, f)
+            total_size = int(r.headers.get('content-length', 0))
+            
+            with open(file_name, 'wb') as f, tqdm(
+                total=total_size,
+                unit='iB',
+                unit_scale=True,
+                desc=f"Descargando {file_name}",
+                leave=False
+            ) as bar:
+                for chunk in r.iter_content(chunk_size=8192):
+                    size = f.write(chunk)
+                    bar.update(size)
+                    
         logger.info("Descarga completada exitosamente.")
         return True
     except Exception:

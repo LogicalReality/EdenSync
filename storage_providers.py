@@ -12,11 +12,10 @@ from tqdm import tqdm  # type: ignore
 import dropbox  # type: ignore
 from dropbox.exceptions import ApiError  # type: ignore
 from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo  # type: ignore
+import requests # type: ignore
 
-# Constantes
-# Tamaño de chunk configurable (por defecto 64MB para mejor rendimiento en conexiones rápidas)
-DEFAULT_CHUNK_SIZE = 64 * 1024 * 1024
-CHUNK_SIZE = int(os.environ.get("PESYNC_CHUNK_SIZE", DEFAULT_CHUNK_SIZE))
+# Tamaño de chunk (fijado a 8MB para rendimiento equilibrado y feedback visual)
+CHUNK_SIZE = 8 * 1024 * 1024
 
 # Configurar logger
 logger = logging.getLogger("pesync_providers")
@@ -249,47 +248,81 @@ class GoogleDriveProvider(StorageProvider):
         
         logger.info(f"[GOOGLE DRIVE] Subiendo: {remote_name}...")
         try:
-            from googleapiclient.http import MediaFileUpload
+            from google.auth.transport.requests import Request
             
-            # Metadata del archivo
-            file_metadata = {
-                'name': remote_name,
-                'parents': [self.folder_id]
+            # Asegurar token fresco
+            self.credentials.refresh(Request())
+            access_token = self.credentials.token
+            
+            file_size = os.path.getsize(local_path)
+            
+            # 1. Iniciar sesión de carga resumible
+            init_url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json; charset=UTF-8",
+                "X-Upload-Content-Type": "application/octet-stream",
+                "X-Upload-Content-Length": str(file_size)
+            }
+            metadata = {
+                "name": remote_name,
+                "parents": [self.folder_id]
             }
             
-            # Crear media uploader
-            media = MediaFileUpload(local_path, chunksize=CHUNK_SIZE, resumable=True)
+            response = requests.post(init_url, headers=headers, json=metadata, timeout=30)
+            response.raise_for_status()
+            upload_url = response.headers.get("Location")
             
-            # Subir archivo con progreso
-            request = self.service.files().create(
-                body=file_metadata,
-                media_body=media,
-                fields='id'
-            )
+            if not upload_url:
+                logger.error("No se pudo obtener la URL de carga de Google Drive.")
+                return False
+                
+            # 2. Subir en chunks con progreso
+            with open(local_path, "rb") as f, tqdm(
+                total=file_size, 
+                unit='B', 
+                unit_scale=True, 
+                desc=f"Subiendo a Google Drive"
+            ) as pbar:
+                offset = 0
+                while offset < file_size:
+                    chunk = f.read(CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    
+                    chunk_len = len(chunk)
+                    headers = {
+                        "Authorization": f"Bearer {access_token}",
+                        "Content-Range": f"bytes {offset}-{offset + chunk_len - 1}/{file_size}",
+                        "Content-Length": str(chunk_len)
+                    }
+                    
+                    # PUT del chunk
+                    chunk_response = requests.put(upload_url, headers=headers, data=chunk, timeout=300)
+                    
+                    if chunk_response.status_code in [200, 201]:
+                        # Carga finalizada con éxito
+                        pbar.update(chunk_len)
+                        break
+                    elif chunk_response.status_code == 308:
+                        # Carga parcial, siguiente chunk
+                        offset += chunk_len
+                        pbar.update(chunk_len)
+                    else:
+                        chunk_response.raise_for_status()
             
-            response = None
-            file_size = os.path.getsize(local_path)
-            with tqdm(total=file_size, unit='B', unit_scale=True, desc=f"Subiendo a Google Drive") as pbar:
-                while response is None:
-                    status, response = request.next_chunk()
-                    if status:
-                        pbar.n = int(status.resumable_progress)
-                        pbar.refresh()
-                pbar.n = file_size
-                pbar.refresh()
-            
-            file_id = response.get('id')
-            logger.info(f"[GOOGLE DRIVE] Archivo subido correctamente (ID: {file_id}).")
+            logger.info(f"[GOOGLE DRIVE] Archivo subido correctamente.")
             
             # Limpiar archivo local
             try:
                 os.remove(local_path)
             except OSError:
                 pass
-            
+                
             return True
+            
         except Exception:
-            logger.exception("Error al subir archivo a Google Drive:")
+            logger.exception("Error al subir archivo con el motor Requests:")
             # Limpiar archivo local también en caso de error
             try:
                 if os.path.exists(local_path):

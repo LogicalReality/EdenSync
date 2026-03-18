@@ -27,6 +27,8 @@ graph LR
 - **Peticiones Seguras y Validadas**: Peticiones de red optimizadas mediante `requests`, validación robusta de activos descargables.
 - **Verificación de Conexión**: Script dedicado para validar las credenciales almacenadas en el archivo `.env` y el acceso a Dropbox antes de iniciar procesos de sincronización.
 - **Filtrado Exclusivo**: Capacidad para ignorar patrones específicos (por ejemplo, excluir archivos firmware durante respaldos de licencias).
+- **Feedback Visual (Progreso)**: Muestra barras de progreso detalladas (0-100%) en consola tanto para la descarga de archivos como para la subida a los servicios de nube (Dropbox/Google Drive).
+- **Subidas de Alto Rendimiento**: Implementación de subidas por fragmentos (chunks) configurables con un motor optimizado en `requests` (para Google Drive), garantizando el máximo aprovechamiento del ancho de banda en conexiones de alta velocidad (ej. 1Gbps).
 
 ## 📋 Requisitos Previos
 
@@ -102,6 +104,10 @@ BACKUP_CONFIG = {
 
 > [!NOTE]
 > El script utiliza un sistema de **rotación basada en la fuente**. Si una versión ya no está entre las `N` más recientes de la fuente oficial, será eliminada automáticamente de Dropbox para dejar espacio a las nuevas.
+
+### Eficiencia y Monitoreo
+
+El sistema subidas grandes dividiéndolas en bloques fijos de **8MB**. Este valor está optimizado para garantizar alta velocidad con la máxima fluidez en las barras de progreso, además de mantener un consumo de RAM casi nulo.
 
 ### Paso 3: Sincronización
 
