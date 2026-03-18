@@ -95,9 +95,11 @@ def setup_dropbox():
         
         print("=" * 60)
         
-        # Intentar escribir automáticamente en .env
+        # Intentar escribir automáticamente en .env en la RAÍZ del proyecto
         try:
-            with open(".env", "w", encoding="utf-8") as env_file:
+            import os
+            env_path = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), '.env')
+            with open(env_path, "w", encoding="utf-8") as env_file:
                 env_file.write(f"DROPBOX_APP_KEY={app_key}\n")
                 env_file.write(f"DROPBOX_APP_SECRET={app_secret}\n")
                 env_file.write(f"DROPBOX_REFRESH_TOKEN={refresh_token}\n")
@@ -127,42 +129,105 @@ def setup_google_drive():
     print("5. Ve a 'APIs y servicios' > 'Credenciales'")
     print("6. Haz clic en 'Crear credenciales' > 'ID de cliente OAuth'")
     print("7. Selecciona 'Aplicación de escritorio' como tipo de aplicación")
-    print("8. Descarga el archivo JSON de credenciales")
-    print("9. Copia el 'client_id' y 'client_secret' del archivo JSON")
+    print("8. Descarga el archivo JSON de credenciales y guárdalo en tu equipo")
     print("-" * 60)
     
-    client_id = input("Pega aquí tu 'client_id': ").strip()
-    client_secret = input("Pega aquí tu 'client_secret': ").strip()
+    import json
+    import os
+    import glob
     
-    if not client_id or not client_secret:
-        print("Error: Necesitas ingresar ambos valores.")
+    json_path = ""
+    downloads_path = os.path.join(os.path.expanduser('~'), 'Downloads')
+    project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+    
+    possible_files = []
+    for path in [downloads_path, project_root]:
+        if os.path.exists(path):
+            possible_files.extend(glob.glob(os.path.join(path, "client_secret_*.json")))
+            possible_files.extend(glob.glob(os.path.join(path, "credentials*.json")))
+            
+    possible_files = list(set(possible_files))
+    
+    if possible_files:
+        print("\nHemos detectado los siguientes archivos de credenciales:")
+        for i, file in enumerate(possible_files):
+            print(f"[{i+1}] {file}")
+        print(f"[{len(possible_files)+1}] Ingresar ruta manualmente")
+        
+        choice = input(f"\nSelecciona una opción (1-{len(possible_files)+1}): ").strip()
+        
+        try:
+            choice_idx = int(choice) - 1
+            if 0 <= choice_idx < len(possible_files):
+                json_path = possible_files[choice_idx]
+        except ValueError:
+            pass
+            
+    if not json_path:
+        json_path = input("\nIngresa la ruta al archivo JSON descargado (ej. credentials.json): ").strip()
+        
+    # Remover comillas por si el usuario arrastró el archivo a la terminal
+    json_path = json_path.strip("\"'")
+    
+    if not json_path or not os.path.exists(json_path):
+        print(f"Error: El archivo '{json_path}' no existe o la ruta es inválida.")
+        return
+        
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            cred_data = json.load(f)
+            
+        if "installed" in cred_data:
+            client_id = cred_data["installed"]["client_id"]
+            client_secret = cred_data["installed"]["client_secret"]
+        elif "web" in cred_data:
+            client_id = cred_data["web"]["client_id"]
+            client_secret = cred_data["web"]["client_secret"]
+        else:
+            print("Error: El formato del archivo JSON no contiene 'client_id' de forma reconocida.")
+            return
+            
+    except Exception as e:
+        print(f"Error leyendo el archivo JSON: {e}")
         return
 
     print("\n" + "-" * 60)
-    print("Ahora necesitas obtener un refresh_token.")
-    print("Para hacerlo, ejecuta este código en Python (necesitas instalar google-auth):")
+    print("Iniciando flujo de autorización...")
+    print("Se abrirá una ventana en tu navegador web. Inicia sesión y autoriza a la aplicación.")
     print("-" * 60)
     
-    print("""
-# Código para obtener refresh_token (ejecuta esto en Python):
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-
-SCOPES = ['https://www.googleapis.com/auth/drive.file']
-
-# Descarga el archivo JSON de credenciales desde Google Cloud Console
-# y ponlo como 'credentials.json'
-flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
-credentials = flow.run_local_server(port=0)
-
-print(f"Refresh token: {credentials.refresh_token}")
-""")
-    
-    refresh_token = input("\nPega aquí tu 'refresh_token': ").strip()
-    
-    if not refresh_token:
-        print("Error: Necesitas el refresh_token.")
+    try:
+        from google.oauth2.credentials import Credentials  # type: ignore
+        from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore
+    except ImportError:
+        print("Error: Faltan dependencias para Google Drive.")
+        print("Por favor, instala los paquetes necesarios ejecutando:")
+        print("pip install google-auth google-auth-oauthlib google-auth-httplib2 google-api-python-client")
         return
+
+    SCOPES = ['https://www.googleapis.com/auth/drive.file']
+    
+    try:
+        # Usar directamente el archivo JSON proporiconado por el usuario
+        flow = InstalledAppFlow.from_client_secrets_file(json_path, SCOPES)
+        credentials = flow.run_local_server(port=0)
+        refresh_token = credentials.refresh_token
+        
+        if not refresh_token:
+             print("\nAdvertencia: No se recibió un refresh token nuevo.")
+             print("Si ya habías autorizado esta app antes, Google podría no enviar uno nuevo.")
+             print("Solución: Ve a tu cuenta de Google > Seguridad > Apps con acceso, revoca el acceso y vuelve a intentarlo.")
+             return
+             
+    except Exception as e:
+        print(f"\nError durante la autorización: {e}")
+        return
+        
+    print("\n" + "-" * 60)
+    print("Opcional: Nombre de la carpeta de respaldo.")
+    folder_name = input("Ingresa el nombre de la carpeta (presiona ENTER para usar 'PESync_Backup'): ").strip()
+    if not folder_name:
+        folder_name = "PESync_Backup"
         
     print("\n" + "=" * 60)
     print("¡ÉXITO! Aquí están los secretos que debes guardar:")
@@ -178,17 +243,22 @@ print(f"Refresh token: {credentials.refresh_token}")
     print(f"3) Nombre: GOOGLE_DRIVE_REFRESH_TOKEN")
     print(f"   Valor:  {refresh_token}\n")
     
-    print(f"4) Nombre: STORAGE_PROVIDER")
+    print(f"4) Nombre: GOOGLE_DRIVE_FOLDER")
+    print(f"   Valor:  {folder_name}\n")
+    
+    print(f"5) Nombre: STORAGE_PROVIDER")
     print(f"   Valor:  googledrive\n")
     
     print("=" * 60)
     
-    # Intentar escribir automáticamente en .env
+    # Intentar escribir automáticamente en .env en la RAÍZ del proyecto
     try:
-        with open(".env", "w", encoding="utf-8") as env_file:
+        env_path = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), '.env')
+        with open(env_path, "w", encoding="utf-8") as env_file:
             env_file.write(f"GOOGLE_DRIVE_CLIENT_ID={client_id}\n")
             env_file.write(f"GOOGLE_DRIVE_CLIENT_SECRET={client_secret}\n")
             env_file.write(f"GOOGLE_DRIVE_REFRESH_TOKEN={refresh_token}\n")
+            env_file.write(f"GOOGLE_DRIVE_FOLDER={folder_name}\n")
             env_file.write(f"STORAGE_PROVIDER=googledrive\n")
         print("✅ El archivo .env ha sido actualizado automáticamente.")
     except Exception as e:

@@ -177,12 +177,13 @@ class GoogleDriveProvider(StorageProvider):
     """Implementación de StorageProvider para Google Drive."""
     
     # Scopes necesarios para Google Drive API
-    SCOPES = ['https://www.googleapis.com/auth/drive']
+    SCOPES = ['https://www.googleapis.com/auth/drive.file']
     
     def __init__(self):
         self.service: Any = None
         self.credentials: Any = None
         self.folder_id: str = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "root")
+        self.folder_name: str = os.environ.get("GOOGLE_DRIVE_FOLDER", "")
     
     def connect(self) -> bool:
         """Inicializa el cliente de Google Drive."""
@@ -209,6 +210,11 @@ class GoogleDriveProvider(StorageProvider):
             
             self.service = build('drive', 'v3', credentials=self.credentials)
             logger.info("[GOOGLE DRIVE] Cliente inicializado correctamente.")
+            
+            # Resolver folder_id si se especificó folder_name pero no folder_id directamente
+            if self.folder_name and self.folder_id == "root":
+                self._resolve_folder_id()
+                
             return True
         except ImportError:
             logger.error("Error: No se encontró la librería google-api-python-client. Instálala con: pip install google-api-python-client google-auth-httplib2")
@@ -216,6 +222,45 @@ class GoogleDriveProvider(StorageProvider):
         except Exception:
             logger.exception("Error al inicializar el cliente de Google Drive:")
             return False
+            
+    def _resolve_folder_id(self) -> None:
+        """Busca la carpeta por nombre o la crea si no existe, actualizando self.folder_id"""
+        if not self.service or not self.folder_name:
+            return
+            
+        try:
+            # Buscar carpeta existente
+            query = f"name='{self.folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
+            results = self.service.files().list(
+                q=query,
+                pageSize=1,
+                fields="files(id, name)"
+            ).execute()
+            
+            files = results.get('files', [])
+            
+            if files:
+                self.folder_id = files[0]['id']
+                logger.info(f"[GOOGLE DRIVE] Carpeta existente encontrada: '{self.folder_name}' (ID: {self.folder_id})")
+            else:
+                # Crear la carpeta
+                logger.info(f"[GOOGLE DRIVE] Creando nueva carpeta: '{self.folder_name}'")
+                file_metadata = {
+                    'name': self.folder_name,
+                    'mimeType': 'application/vnd.google-apps.folder'
+                }
+                folder = self.service.files().create(
+                    body=file_metadata,
+                    fields='id'
+                ).execute()
+                
+                self.folder_id = folder.get('id')
+                logger.info(f"[GOOGLE DRIVE] Carpeta creada (ID: {self.folder_id})")
+                
+        except Exception:
+            logger.exception(f"Error al resolver o crear la carpeta '{self.folder_name}':")
+            # Fallback a root si falla
+            self.folder_id = "root"
     
     def list_files(self) -> set[str]:
         """Lista archivos en Google Drive (raíz)."""

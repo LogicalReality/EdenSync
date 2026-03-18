@@ -1,6 +1,6 @@
 # Project-E Sync (PESync)
 
-PESync es una herramienta de automatización en Python diseñada para gestionar la sincronización y el respaldo de componentes de emulación. El script automatiza el flujo de búsqueda, descarga y almacenamiento en la nube (Dropbox) de los siguientes recursos:
+PESync es una herramienta de automatización en Python diseñada para gestionar la sincronización y el respaldo de componentes de emulación. El script automatiza el flujo de búsqueda, descarga y almacenamiento en la nube (Dropbox, Google Drive) de los siguientes recursos:
 
 - **Emu**: El binario principal del entorno en formato `AppImage` para sistemas compatibles.
 - **Licencias del sistema**: Archivos de configuración necesarios para la ejecución del emulador.
@@ -20,22 +20,18 @@ graph LR
 
 ## 🚀 Características
 
-- **Estado basado en Dropbox**: El script consulta directamente el almacenamiento remoto al iniciar para determinar qué recursos ya están respaldados, sin depender de archivos locales.
+- **Estado basado en la Nube**: El script consulta directamente el almacenamiento remoto al iniciar para determinar qué recursos ya están respaldados.
 - **Límites de Versiones Configurable**: Permite definir cuántas versiones mantener de cada componente de forma independiente.
-- **Rotación Automática y Auto-Limpieza**: El script identifica y elimina automáticamente versiones obsoletas en la nube para mantener solo lo más reciente según la configuración, optimizando el espacio.
-- **Almacenamiento Seguro**: Integración con Dropbox para mantener redundancia de los componentes críticos, soportando subida de archivos de gran tamaño mediante fragmentación.
-- **Robustez con Fallback**: El script está diseñado para no fallar ante configuraciones incompletas, utilizando 2 versiones como valor de respaldo seguro.
+- **Rotación Automática y Auto-Limpieza**: El script identifica y elimina automáticamente versiones obsoletas en la nube para mantener solo lo más reciente según la configuración.
+- **Almacenamiento Seguro**: Integración con múltiples servicios en la nube (Dropbox, Google Drive).
 - **Registro y Resumen Detallado**: Implementación de un Console Logger para seguimiento en vivo y visualización de un resumen final de los componentes procesados.
 - **Peticiones Seguras y Validadas**: Peticiones de red optimizadas mediante `requests`, validación robusta de activos descargables.
-- **Verificación de Conexión**: Script dedicado para validar las credenciales almacenadas en el archivo `.env` y el acceso a Dropbox antes de iniciar procesos de sincronización.
-- **Filtrado Exclusivo**: Capacidad para ignorar patrones específicos (por ejemplo, excluir archivos firmware durante respaldos de licencias).
 - **Feedback Visual (Progreso)**: Muestra barras de progreso detalladas (0-100%) en consola tanto para la descarga de archivos como para la subida a los servicios de nube (Dropbox/Google Drive).
-- **Subidas de Alto Rendimiento**: Implementación de subidas por fragmentos (chunks) configurables con un motor optimizado en `requests` (para Google Drive), garantizando el máximo aprovechamiento del ancho de banda en conexiones de alta velocidad (ej. 1Gbps).
 
 ## 📋 Requisitos Previos
 
 - **Python 3.7+**
-- Cuenta de Dropbox con acceso API.
+- Cuenta de almacenamiento en la nube (Dropbox o Google Drive) con acceso a API configurado.
 
 ### Instalación
 
@@ -58,19 +54,25 @@ PESync soporta múltiples proveedores de almacenamiento. Para seleccionar cuál 
 | `dropbox` | Dropbox (por defecto) |
 | `googledrive` | Google Drive |
 
-### Configuración de Dropbox
+### Configuración de Credenciales (Local)
 
-Para Dropbox, configura las siguientes variables de entorno:
+Para la ejecución en entorno local, dependiendo del proveedor seleccionado, configura las siguientes variables en tu archivo `.env`:
 
-| Variable | Propósito |
-| :--- | :--- |
-| `STORAGE_PROVIDER` | Establece `dropbox` |
-| `DROPBOX_APP_KEY` | Llave de acceso de la API de Dropbox. |
-| `DROPBOX_APP_SECRET` | Secreto de la API de Dropbox. |
-| `DROPBOX_REFRESH_TOKEN` | Token de actualización de sesión. |
+**Para Dropbox (`STORAGE_PROVIDER=dropbox`):**
+
+- `DROPBOX_APP_KEY`: Llave de acceso de la API.
+- `DROPBOX_APP_SECRET`: Secreto de la API.
+- `DROPBOX_REFRESH_TOKEN`: Token de actualización de sesión.
+
+**Para Google Drive (`STORAGE_PROVIDER=googledrive`):**
+
+- `GOOGLE_DRIVE_CLIENT_ID`: ID del cliente OAuth.
+- `GOOGLE_DRIVE_CLIENT_SECRET`: Secreto del cliente OAuth.
+- `GOOGLE_DRIVE_REFRESH_TOKEN`: Token de actualización de sesión.
+- `GOOGLE_DRIVE_FOLDER`: *(Opcional)* Nombre de la carpeta de respaldo en Google Drive. Por defecto es `PESync_Backup`.
 
 > [!CAUTION]
-> **SEGURIDAD LÓGICA**: Nunca subas el archivo `.env` a un repositorio público. Este archivo ya está incluido en el `.gitignore` por defecto para evitar fugas de credenciales.
+> **ENTORNO LOCAL**: El archivo `.env` es **exclusivo para ejecución local**. Nunca lo subas a un repositorio público (ya está mitigado por `.gitignore`). Para entornos automatizados (como GitHub Actions), utiliza los *Secrets* del repositorio.
 
 ### Paso 1: Obtener Credenciales
 
@@ -80,7 +82,7 @@ Para obtener estas credenciales, ejecuta el asistente interactivo:
 python scripts/setup_storage.py
 ```
 
-Sigue las instrucciones en pantalla para autorizar la aplicación en tu cuenta de Dropbox. Al finalizar, el script intentará crear/actualizar el archivo `.env` automáticamente.
+Sigue las instrucciones en pantalla para autorizar la aplicación en tu cuenta de Dropbox o Google Drive. Al finalizar, el script intentará crear/actualizar el archivo `.env` automáticamente.
 
 ### Paso 2: Prueba de Conexión (Recomendado)
 
@@ -105,19 +107,17 @@ BACKUP_CONFIG = {
 ```
 
 > [!NOTE]
-> El script utiliza un sistema de **rotación basada en la fuente**. Si una versión ya no está entre las `N` más recientes de la fuente oficial, será eliminada automáticamente de Dropbox para dejar espacio a las nuevas.
+> El script utiliza un sistema de **rotación basada en la fuente**. Si una versión ya no está entre las `N` más recientes de la fuente oficial, será eliminada automáticamente de la nube para dejar espacio a las nuevas.
 
 ### Eficiencia y Monitoreo
 
-El sistema subidas grandes dividiéndolas en bloques fijos de **8MB**. Este valor está optimizado para garantizar alta velocidad con la máxima fluidez en las barras de progreso, además de mantener un consumo de RAM casi nulo.
+El sistema divide automáticamente las subidas grandes en bloques fijos de **8MB**. Este valor está optimizado para garantizar alta velocidad con la máxima fluidez en las barras de progreso, además de mantener un consumo de RAM casi nulo.
 
-### Paso 3: Sincronización
+### Resumen de Uso
 
-Una vez validada la conexión, inicia el proceso de sincronización:
-
-```bash
-python main.py
-```
+1. **Obtener Credenciales:** `python scripts/setup_storage.py` (creará el `.env`).
+2. **Validar Conexión:** `python scripts/test_sync.py` (verificará acceso a la nube).
+3. **Ejecutar Sincronización:** `python main.py`.
 
 ## 🛠 Estructura (Arquitectura Modular)
 

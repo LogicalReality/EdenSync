@@ -6,7 +6,7 @@ logs/
 .local/
 
 # Secrets and credentials
-credentials.json
+*.json
 *.key
 *.pem
 .env
