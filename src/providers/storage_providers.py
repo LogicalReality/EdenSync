@@ -204,8 +204,7 @@ class GoogleDriveProvider(StorageProvider):
                 refresh_token=refresh_token,
                 client_id=client_id,
                 client_secret=client_secret,
-                token_uri="https://oauth2.googleapis.com/token",
-                scopes=self.SCOPES
+                token_uri="https://oauth2.googleapis.com/token"
             )
             
             self.service = build('drive', 'v3', credentials=self.credentials)
