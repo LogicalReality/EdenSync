@@ -14,8 +14,8 @@ from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo  # type: ig
 import requests # type: ignore
 from src.utils.helpers import logger  # pyre-ignore[21]
 
-# Tamaño de chunk (fijado a 8MB para rendimiento equilibrado y feedback visual)
-CHUNK_SIZE = 8 * 1024 * 1024
+# Tamaño de chunk (fijado a 32MB para alto rendimiento en conexiones modernas)
+CHUNK_SIZE = 32 * 1024 * 1024
 
 # ==========================================
 # INTERFAZ ABSTRACTA DE PROVEEDOR
@@ -196,6 +196,7 @@ class GoogleDriveProvider(StorageProvider):
         self.credentials: Any = None
         self.folder_id: str = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "root")
         self.folder_name: str = os.environ.get("GOOGLE_DRIVE_FOLDER", "")
+        self.session = requests.Session()
     
     def connect(self) -> bool:
         """Inicializa el cliente de Google Drive."""
@@ -322,7 +323,7 @@ class GoogleDriveProvider(StorageProvider):
                 "parents": [self.folder_id]
             }
             
-            response = requests.post(init_url, headers=headers, json=metadata, timeout=30)
+            response = self.session.post(init_url, headers=headers, json=metadata, timeout=30)
             response.raise_for_status()
             upload_url = response.headers.get("Location")
             
@@ -359,7 +360,7 @@ class GoogleDriveProvider(StorageProvider):
                         }
                         
                         # PUT del chunk
-                        chunk_response = requests.put(upload_url, headers=headers, data=chunk, timeout=300)
+                        chunk_response = self.session.put(upload_url, headers=headers, data=chunk, timeout=300)
                         
                         if chunk_response.status_code in [200, 201]:
                             # Carga finalizada con éxito

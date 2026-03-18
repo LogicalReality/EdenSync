@@ -83,7 +83,8 @@ def download_asset(url, file_name):
                     transient=False
                 ) as progress:
                     task = progress.add_task("Descargando nueva versión", total=total_size)
-                    for chunk in r.iter_content(chunk_size=8192):
+                    # Usar un tamaño de chunk mayor (1MB) para reducir sobrecarga de actualizaciones de progreso
+                    for chunk in r.iter_content(chunk_size=1024 * 1024):
                         size = f.write(chunk)
                         progress.update(task, advance=size)
                     
