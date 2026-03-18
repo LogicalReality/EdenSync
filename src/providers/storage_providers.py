@@ -12,12 +12,10 @@ import dropbox  # type: ignore
 from dropbox.exceptions import ApiError  # type: ignore
 from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo  # type: ignore
 import requests # type: ignore
-
-from src.utils.helpers import logger
+from src.utils.helpers import logger  # pyre-ignore[21]
 
 # Tamaño de chunk (fijado a 8MB para rendimiento equilibrado y feedback visual)
 CHUNK_SIZE = 8 * 1024 * 1024
-
 
 # ==========================================
 # INTERFAZ ABSTRACTA DE PROVEEDOR
@@ -152,6 +150,7 @@ class DropboxProvider(StorageProvider):
                     os.remove(local_path)
                 except OSError:
                     pass
+        return False
     
     def delete_file(self, file_name: str) -> bool:
         """Elimina un archivo de Dropbox."""
@@ -196,8 +195,8 @@ class GoogleDriveProvider(StorageProvider):
             return False
         
         try:
-            from google.oauth2.credentials import Credentials
-            from googleapiclient.discovery import build
+            from google.oauth2.credentials import Credentials  # pyre-ignore[21]
+            from googleapiclient.discovery import build  # pyre-ignore[21]
             
             self.credentials = Credentials(
                 token=None,
@@ -246,7 +245,7 @@ class GoogleDriveProvider(StorageProvider):
         
         logger.info(f"[GOOGLE DRIVE] Subiendo: {remote_name}...")
         try:
-            from google.auth.transport.requests import Request
+            from google.auth.transport.requests import Request  # pyre-ignore[21]
             
             # Asegurar token fresco
             self.credentials.refresh(Request())

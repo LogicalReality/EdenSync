@@ -3,6 +3,7 @@ __pycache__/
 .kilocodemodes
 .kilocode
 logs/
+.local/
 
 # Secrets and credentials
 credentials.json

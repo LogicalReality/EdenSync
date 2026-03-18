@@ -10,9 +10,11 @@ Esta herramienta está pensada para la gestión personal de respaldos y la autom
 
 ```mermaid
 graph LR
-    A[Entorno Local] -- "setup_storage.py" --> B(Configuración .env)
-    B -- "test_sync.py" --> C{Validación}
-    C -- "main.py" --> D[Dropbox Cloud]
+    A[Entorno Local] -- "scripts/setup_storage.py" --> B(Configuración .env)
+    B -- "scripts/test_sync.py" --> C{Validación}
+    C -- "main.py" --> D[Cloud Storage]
+    D -.-> D1[Dropbox]
+    D -.-> D2[Google Drive]
     E[GitHub Actions] -- "Secrets" --> D
 ```
 
@@ -75,7 +77,7 @@ Para Dropbox, configura las siguientes variables de entorno:
 Para obtener estas credenciales, ejecuta el asistente interactivo:
 
 ```bash
-python setup_storage.py
+python scripts/setup_storage.py
 ```
 
 Sigue las instrucciones en pantalla para autorizar la aplicación en tu cuenta de Dropbox. Al finalizar, el script intentará crear/actualizar el archivo `.env` automáticamente.
@@ -85,7 +87,7 @@ Sigue las instrucciones en pantalla para autorizar la aplicación en tu cuenta d
 Antes de la primera ejecución o tras actualizar tus credenciales, verifica que todo funcione correctamente:
 
 ```bash
-python test_sync.py
+python scripts/test_sync.py
 ```
 
 Este script valida que las llaves guardadas en el archivo `.env` (u obtenidas vía Secrets) sean funcionales y tengan los permisos necesarios.
@@ -122,9 +124,9 @@ python main.py
 El proyecto sigue principios de Clean Code, dividiendo las responsabilidades en módulos independientes:
 
 - `main.py`: Punto de entrada principal que orquesta la lógica de sincronización (alta cohesión).
-- `storage_providers.py`: Gestiona la integración con los proveedores de almacenamiento en la nube (Dropbox, Google Drive).
-- `network.py`: Centraliza todas las operaciones de red y descargas HTTP usando `requests`.
-- `utils.py`: Módulo de herramientas compartidas (formateo, seguridad, logging centralizado).
-- `setup_storage.py`: Utilidad de configuración inicial (OAuth) para el almacenamiento en la nube.
-- `test_sync.py`: Script de validación rápida de conexión y credenciales (`.env`).
+- `src/providers/`: Gestiona la integración con los proveedores de almacenamiento en la nube (Dropbox, Google Drive).
+- `src/network/`: Centraliza todas las operaciones de red y descargas HTTP usando `requests`.
+- `src/utils/`: Módulos de herramientas compartidas (formateo, seguridad, logging centralizado).
+- `scripts/setup_storage.py`: Utilidad de configuración inicial (OAuth) para el almacenamiento en la nube.
+- `scripts/test_sync.py`: Script de validación rápida de conexión y credenciales (`.env`).
 - `requirements.txt`: Definición de dependencias del proyecto.
