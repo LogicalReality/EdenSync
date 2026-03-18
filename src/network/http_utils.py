@@ -73,8 +73,7 @@ def download_asset(url, file_name):
                 total=total_size,
                 unit='iB',
                 unit_scale=True,
-                desc=f"Descargando {file_name}",
-                leave=False
+                desc="Descargando nueva versión"
             ) as bar:
                 for chunk in r.iter_content(chunk_size=8192):
                     size = f.write(chunk)

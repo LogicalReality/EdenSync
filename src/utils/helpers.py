@@ -12,7 +12,7 @@ import re
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # segundos
 VERSION_REGEX = re.compile(r'\d+\.\d+[\d.]*\.zip')
-TAG_REGEX = re.compile(r'v\d+\.\d+[\d.\-]*\d')
+TAG_REGEX = re.compile(r'v\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z0-9]+)?')
 
 # Configuración de cantidad de versiones a respaldar
 BACKUP_CONFIG = {
@@ -35,7 +35,7 @@ def xor_cipher(data: str, key: str = "pesync_2026") -> str:
         return bytes([ord(c) ^ ord(key[i % len(key)]) for i, c in enumerate(data)]).hex()
 
 EMU_RELEASES_API_URL = xor_cipher("181107091d59701d575b425e00171c004e3a5f451c5215135c181e0a7044011d4415151c0a41063b575e1f531d105c1c0a06311d42575a1504001c1d")  # URL de la API para las versiones del Emu
-EMU_ASSET_IDENTIFIER = xor_cipher("1108174f5a4e3851531f4504041d1d0f113b1c7142463908121e0b")  # Fragmento para identificar el binario del Emu
+EMU_ASSET_IDENTIFIER = xor_cipher("0311161803073a515b1f5113065e0a1a0231565140525e240309270e3e5555")  # Fragmento para identificar el binario del Emu
 
 # ==========================================
 # LOGGING
@@ -43,7 +43,6 @@ EMU_ASSET_IDENTIFIER = xor_cipher("1108174f5a4e3851531f4504041d1d0f113b1c7142463
 def setup_logger(name: str = "pesync", log_file: str | None = None) -> logging.Logger:
     """Configura y retorna un logger con rotación de archivos y nombre por sesión."""
     if log_file is None:
-        # Generar nombre único por sesión: logs/pesync_20240316_203000.log
         timestamp = time.strftime("%Y%m%d_%H%M%S")
         log_file = os.path.join("logs", f"pesync_{timestamp}.log")
         
@@ -73,10 +72,21 @@ def setup_logger(name: str = "pesync", log_file: str | None = None) -> logging.L
     try:
         if log_dir:
             os.makedirs(log_dir, exist_ok=True)
+            
+        # Eliminar logs antiguos si hay más de 5
+        log_files = [os.path.join(log_dir, f) for f in os.listdir(log_dir) if f.startswith("pesync_") and f.endswith(".log")]
+        log_files.sort(key=os.path.getmtime)
+        while len(log_files) >= 5: # Dejar espacio para el nuevo
+            oldest_log = log_files.pop(0)
+            try:
+                os.remove(oldest_log)
+            except OSError:
+                pass
+                
         file_handler = logging.handlers.RotatingFileHandler(
             log_file,
             maxBytes=1*1024*1024,  # 1MB por archivo - suficiente para GHA y local
-            backupCount=1,  # Mantener 1 archivo de backup
+            backupCount=1,  # Mantener 1 archivo de backup por sesion
             encoding='utf-8'
         )
         file_handler.setLevel(logging.DEBUG)

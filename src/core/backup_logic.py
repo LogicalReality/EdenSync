@@ -215,11 +215,11 @@ def display_backup_summary(backed_up: set[str]):
     logger.info(f"  Emu        : {emu_tags if emu_tags else 'ninguno'}")
 
     final_keys = {normalize_filename(f) for f in backed_up if is_license_file(f)}
-    keys_display = [(VERSION_REGEX.findall(f) or [f])[0] for f in sorted(final_keys)]
+    keys_display = [(VERSION_REGEX.findall(f) or [f])[0].replace('.zip', '') for f in sorted(final_keys)]
     logger.info(f"  Licencias  : {keys_display if keys_display else 'ninguna'}")
 
     final_sys = {normalize_filename(f) for f in backed_up if is_system_file(f)}
-    sys_display = [(VERSION_REGEX.findall(f) or [f])[0] for f in sorted(final_sys)]
+    sys_display = [(VERSION_REGEX.findall(f) or [f])[0].replace('.zip', '') for f in sorted(final_sys)]
     logger.info(f"  Sistema    : {sys_display if sys_display else 'ninguno'}")
     logger.info("="*40)
 
