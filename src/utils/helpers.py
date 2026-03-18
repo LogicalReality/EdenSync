@@ -121,3 +121,63 @@ def is_license_file(f: str) -> bool:
 def is_system_file(f: str) -> bool:
     f_low = f.lower()
     return f_low.endswith(".zip") and ("firmware" in f_low or "v19" in f_low)
+
+def wait_for_exit(timeout: int = 15):
+    """
+    Espera a que el usuario presione Enter para salir.
+    Si se presiona cualquier otra tecla durante el timeout, se cancela el cierre automático
+    para todos los sistemas operativos (Windows y Unix-like).
+    """
+    import sys
+    import time
+    
+    if sys.platform == "win32":
+        import msvcrt
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            remaining = int(timeout - (time.time() - start_time))
+            print(f"\rPresiona Enter para salir o cualquier otra tecla para cancelar temporizador ({remaining}s)...   ", end="", flush=True)
+            if msvcrt.kbhit():
+                char = msvcrt.getwch()
+                if char in ('\r', '\n'):
+                    print()
+                    return
+                else:
+                    print("\n[Temporizador cancelado]")
+                    input("Presiona Enter para salir...")
+                    return
+            time.sleep(0.1)
+        print("\n¡Tiempo agotado! Cerrando...")
+    else:
+        import select
+        import termios
+        import tty
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            start_time = time.time()
+            while time.time() - start_time < timeout:
+                remaining = int(timeout - (time.time() - start_time))
+                print(f"\rPresiona Enter para salir o cualquier otra tecla para cancelar temporizador ({remaining}s)...   ", end="", flush=True)
+                ready, _, _ = select.select([sys.stdin], [], [], 0.1)
+                if ready:
+                    char = sys.stdin.read(1)
+                    termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+                    if char in ('\r', '\n'):
+                        print()
+                        return
+                    else:
+                        print("\n\n[Temporizador cancelado]")
+                        input("Presiona Enter para salir...")
+                        return
+            
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            print("\n¡Tiempo agotado! Cerrando...")
+            return
+        finally:
+            try:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+            except Exception:
+                pass
+
