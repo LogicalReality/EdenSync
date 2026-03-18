@@ -2,5 +2,14 @@ __pycache__/
 *.pyc
 .kilocodemodes
 .kilocode
-.env
 logs/
+
+# Secrets and credentials
+credentials.json
+*.key
+*.pem
+.env
+
+# Binary/OS files
+*.AppImage
+*.zip

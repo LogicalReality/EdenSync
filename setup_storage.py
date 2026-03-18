@@ -6,6 +6,26 @@ def main():
     print("=" * 60)
     print("Bienvenido al Asistente de Configuración de Almacenamiento")
     print("=" * 60)
+    print("\nSelecciona el proveedor de almacenamiento que deseas configurar:")
+    print("1. Dropbox")
+    print("2. Google Drive")
+    print("-" * 60)
+    
+    choice = input("Ingresa tu opción (1 o 2): ").strip()
+    
+    if choice == "1":
+        setup_dropbox()
+    elif choice == "2":
+        setup_google_drive()
+    else:
+        print("Opción no válida. Por favor, ejecuta nuevamente el script.")
+        input("\nPresiona ENTER para cerrar esta ventana...")
+        return
+
+def setup_dropbox():
+    print("\n" + "=" * 60)
+    print("CONFIGURACIÓN DE DROPBOX")
+    print("=" * 60)
     print("\nPara automatizar la subida, necesitamos crear un Token de Acceso Persistente (Refresh Token).")
     print("Sigue estos sencillos pasos:\n")
     print("1. Ve a https://www.dropbox.com/developers/apps")
@@ -57,8 +77,9 @@ def main():
         refresh_token = data.get("refresh_token")
         
         print("\n" + "=" * 60)
-        print("¡ÉXITO! Aquí están los 3 Secretos que debes guardar en GitHub:")
-        print("Ve a Settings > Secrets and variables > Actions y crea estos 3 New repository secrets:\n")
+        print("¡ÉXITO! Aquí están los 3 Secretos que debes guardar:")
+        print("Si usas GitHub Actions, ve a Settings > Secrets and variables > Actions")
+        print("Si usas local, se guardarán en el archivo .env\n")
         
         print(f"1) Nombre: DROPBOX_APP_KEY")
         print(f"   Valor:  {app_key}\n")
@@ -68,6 +89,10 @@ def main():
         
         print(f"3) Nombre: DROPBOX_REFRESH_TOKEN")
         print(f"   Valor:  {refresh_token}\n")
+        
+        print(f"4) Nombre: STORAGE_PROVIDER")
+        print(f"   Valor:  dropbox\n")
+        
         print("=" * 60)
         
         # Intentar escribir automáticamente en .env
@@ -76,16 +101,101 @@ def main():
                 env_file.write(f"DROPBOX_APP_KEY={app_key}\n")
                 env_file.write(f"DROPBOX_APP_SECRET={app_secret}\n")
                 env_file.write(f"DROPBOX_REFRESH_TOKEN={refresh_token}\n")
+                env_file.write(f"STORAGE_PROVIDER=dropbox\n")
             print("✅ El archivo .env ha sido actualizado automáticamente.")
         except Exception as e:
             print(f"⚠️ No se pudo escribir el archivo .env: {e}")
             print("Por favor, copia los valores manualmente.")
             
-        print("\n¡Una vez los configures, empuja los archivos a GitHub y corre el Action!")
+        print("\n¡Listo! Ya puedes ejecutar 'python main.py'.")
     else:
         print(f"\nError al obtener el token. Código: {response.status_code}")
         print(response.text)
     
+    input("\nPresiona ENTER para cerrar esta ventana...")
+
+def setup_google_drive():
+    print("\n" + "=" * 60)
+    print("CONFIGURACIÓN DE GOOGLE DRIVE")
+    print("=" * 60)
+    print("\nPara automatizar la subida a Google Drive, necesitamos credenciales OAuth 2.0.")
+    print("Sigue estos pasos:\n")
+    print("1. Ve a https://console.cloud.google.com/")
+    print("2. Crea un nuevo proyecto (o usa uno existente)")
+    print("3. En el menú, ve a 'APIs y servicios' > 'Biblioteca'")
+    print("4. Busca 'Google Drive API' y habilítala")
+    print("5. Ve a 'APIs y servicios' > 'Credenciales'")
+    print("6. Haz clic en 'Crear credenciales' > 'ID de cliente OAuth'")
+    print("7. Selecciona 'Aplicación de escritorio' como tipo de aplicación")
+    print("8. Descarga el archivo JSON de credenciales")
+    print("9. Copia el 'client_id' y 'client_secret' del archivo JSON")
+    print("-" * 60)
+    
+    client_id = input("Pega aquí tu 'client_id': ").strip()
+    client_secret = input("Pega aquí tu 'client_secret': ").strip()
+    
+    if not client_id or not client_secret:
+        print("Error: Necesitas ingresar ambos valores.")
+        return
+
+    print("\n" + "-" * 60)
+    print("Ahora necesitas obtener un refresh_token.")
+    print("Para hacerlo, ejecuta este código en Python (necesitas instalar google-auth):")
+    print("-" * 60)
+    
+    print("""
+# Código para obtener refresh_token (ejecuta esto en Python):
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
+
+# Descarga el archivo JSON de credenciales desde Google Cloud Console
+# y ponlo como 'credentials.json'
+flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+credentials = flow.run_local_server(port=0)
+
+print(f"Refresh token: {credentials.refresh_token}")
+""")
+    
+    refresh_token = input("\nPega aquí tu 'refresh_token': ").strip()
+    
+    if not refresh_token:
+        print("Error: Necesitas el refresh_token.")
+        return
+        
+    print("\n" + "=" * 60)
+    print("¡ÉXITO! Aquí están los secretos que debes guardar:")
+    print("Si usas GitHub Actions, ve a Settings > Secrets and variables > Actions")
+    print("Si usas local, se guardarán en el archivo .env\n")
+    
+    print(f"1) Nombre: GOOGLE_DRIVE_CLIENT_ID")
+    print(f"   Valor:  {client_id}\n")
+    
+    print(f"2) Nombre: GOOGLE_DRIVE_CLIENT_SECRET")
+    print(f"   Valor:  {client_secret}\n")
+    
+    print(f"3) Nombre: GOOGLE_DRIVE_REFRESH_TOKEN")
+    print(f"   Valor:  {refresh_token}\n")
+    
+    print(f"4) Nombre: STORAGE_PROVIDER")
+    print(f"   Valor:  googledrive\n")
+    
+    print("=" * 60)
+    
+    # Intentar escribir automáticamente en .env
+    try:
+        with open(".env", "w", encoding="utf-8") as env_file:
+            env_file.write(f"GOOGLE_DRIVE_CLIENT_ID={client_id}\n")
+            env_file.write(f"GOOGLE_DRIVE_CLIENT_SECRET={client_secret}\n")
+            env_file.write(f"GOOGLE_DRIVE_REFRESH_TOKEN={refresh_token}\n")
+            env_file.write(f"STORAGE_PROVIDER=googledrive\n")
+        print("✅ El archivo .env ha sido actualizado automáticamente.")
+    except Exception as e:
+        print(f"⚠️ No se pudo escribir el archivo .env: {e}")
+        print("Por favor, copia los valores manualmente.")
+        
+    print("\n¡Listo! Ya puedes ejecutar 'python main.py'.")
     input("\nPresiona ENTER para cerrar esta ventana...")
 
 if __name__ == "__main__":

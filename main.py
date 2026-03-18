@@ -1,3 +1,5 @@
+# pyre-ignore-all-errors[21]
+"""PESync - Herramienta de sincronización y respaldo para Pro Evolution Soccer."""
 from __future__ import annotations
 import os
 from dotenv import load_dotenv # type: ignore
@@ -8,10 +10,15 @@ import logging
 import logging.handlers
 from typing import Any
 from bs4 import BeautifulSoup # type: ignore
-import dropbox # type: ignore
-from dropbox.exceptions import ApiError # type: ignore
-from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo # type: ignore
 import re
+
+# Importar proveedores de almacenamiento
+from storage_providers import (
+    get_storage_provider,
+    StorageProvider,
+    DropboxProvider,
+    GoogleDriveProvider
+)
 
 # ==========================================
 # CONFIGURACIÓN Y CONSTANTES
@@ -175,116 +182,31 @@ def download_asset(url, file_name):
         return False
 
 # ==========================================
-# INTERACCIONES CON DROPBOX
+# INTERACCIONES CON ALMACENAMIENTO (PROVEEDOR ABSTRACTO)
 # ==========================================
-def get_dropbox_client():
-    try:
-        app_key = os.environ["DROPBOX_APP_KEY"]
-        app_secret = os.environ["DROPBOX_APP_SECRET"]
-        refresh_token = os.environ["DROPBOX_REFRESH_TOKEN"]
-    except KeyError as e:
-        logger.error(f"Error: La variable de entorno {e} no esta configurada.")
-        return None
-
-    try:
-        return dropbox.Dropbox(
-            app_key=app_key,
-            app_secret=app_secret,
-            oauth2_refresh_token=refresh_token
-        )
-    except Exception:
-        logger.exception("Error al inicializar el cliente de almacenamiento:")
-        return None
-
-def get_dropbox_files(dbx) -> set[str]:
-    """Returns the set of filenames currently in the Dropbox root folder."""
-    try:
-        result = dbx.files_list_folder("")
-        files: set[str] = {entry.name for entry in result.entries}
-        while result.has_more:
-            result = dbx.files_list_folder_continue(result.cursor)
-            files.update(entry.name for entry in result.entries)
-        return files
-    except Exception:
-        logger.exception("Error al listar el almacenamiento remoto:")
-        return set()
-
-def upload_to_dropbox(dbx, file_path, file_name):
-    """Sube un archivo a Dropbox con reintentos y limpieza automática."""
-    logger.info(f"Subiendo a Dropbox: {file_name}...")
-    try:
-        file_size = os.path.getsize(file_path)
-        with open(file_path, 'rb') as f:
-            if file_size <= CHUNK_SIZE:
-                dbx.files_upload(f.read(), f'/{file_name}', mode=WriteMode.overwrite)
-            else:
-                # Upload session para archivos grandes
-                # Primer chunk
-                chunk = f.read(CHUNK_SIZE)
-                upload_session_start = dbx.files_upload_session_start(chunk)
-                cursor = UploadSessionCursor(session_id=upload_session_start.session_id, offset=len(chunk))
-                commit = CommitInfo(path=f'/{file_name}', mode=WriteMode.overwrite)
-
-                #Chunks restantes
-                while True:
-                    remaining = file_size - cursor.offset
-                    if remaining <= CHUNK_SIZE:
-                        # Último chunk - finish session
-                        chunk = f.read(remaining)
-                        dbx.files_upload_session_finish(chunk, cursor, commit)
-                        break
-                    else:
-                        # Chunk intermedio - append
-                        chunk = f.read(CHUNK_SIZE)
-                        dbx.files_upload_session_append_v2(chunk, cursor)
-                        cursor.offset += len(chunk)
-
-        logger.info("Archivo subido correctamente.")
-        return True
-    except ApiError:
-        logger.exception("Error en la API de almacenamiento:")
-        return False
-    except Exception:
-        logger.exception("Error inesperado al subir:")
-        return False
-    finally:
-        # Limpiar archivo temporal
-        if os.path.exists(file_name):
-            try:
-                os.remove(file_name)
-            except OSError:
-                pass
-
-def delete_from_dropbox(dbx, file_name):
-    logger.info(f"Eliminando versión antigua: {file_name}...")
-    try:
-        dbx.files_delete_v2(f'/{file_name}')
-        return True
-    except Exception:
-        logger.exception("Error al eliminar:")
-        return False
-
-def sync_to_dropbox(dbx, category_name: str, backed_up: set[str], items_to_download: list[tuple[str, str]], files_to_delete: list[str]) -> bool:
+def sync_to_storage(provider: StorageProvider, category_name: str, backed_up: set[str], items_to_download: list[tuple[str, str]], files_to_delete: list[str]) -> bool:
     """
-    Gestiona la descarga, subida a Dropbox y limpieza de archivos obsoletos de forma genérica.
+    Gestiona la descarga, subida al almacenamiento y limpieza de archivos obsoletos de forma genérica.
     
+    :param provider: Proveedor de almacenamiento (Dropbox, Google Drive, etc.)
     :param items_to_download: Lista de tuplas (url_de_descarga, nombre_archivo).
-    :param files_to_delete: Lista de nombres exactos de archivos a eliminar en Dropbox.
+    :param files_to_delete: Lista de nombres exactos de archivos a eliminar en el almacenamiento.
     """
+    provider_name = provider.get_provider_name()
     any_uploaded = False
     
     # 1. Descargar y subir nuevos archivos
     for download_url, file_name in items_to_download:
         logger.info(f"[{category_name}] Nuevo archivo a procesar: {file_name}")
         if download_asset(download_url, file_name):
-            if upload_to_dropbox(dbx, file_name, file_name):
+            if provider.upload_file(file_name, file_name):
                 # Usar set.add nativo, que es seguro modificar en memoria
                 backed_up.add(file_name) 
                 any_uploaded = True
                 
-    # 2. Limpiar archivos obsoletos en Dropbox
+    # 2. Limpiar archivos obsoletos en el almacenamiento
     for f in files_to_delete:
-        if delete_from_dropbox(dbx, f):
+        if provider.delete_file(f):
             # Eliminamos del caché local si se borró de la nube con éxito
             backed_up.discard(f) 
             
@@ -293,7 +215,7 @@ def sync_to_dropbox(dbx, category_name: str, backed_up: set[str], items_to_downl
 # ==========================================
 # LÓGICA DE PROCESAMIENTO DE EMU (CORE)
 # ==========================================
-def process_emu_backups(dbx, backed_up: set[str]) -> bool:
+def process_emu_backups(provider: StorageProvider, backed_up: set[str]) -> bool:
     """Procesa el respaldo y rotación de versiones del Emu."""
     logger.info("[EMU] Verificando versiones...")
     releases: list[dict[str, Any]] = get_emu_releases(n=BACKUP_CONFIG.get("emu", 2))
@@ -348,14 +270,14 @@ def process_emu_backups(dbx, backed_up: set[str]) -> bool:
     ]
     
     if items_to_download or files_to_delete:
-        return sync_to_dropbox(dbx, "EMU", backed_up, items_to_download, files_to_delete)
+        return sync_to_storage(provider, "EMU", backed_up, items_to_download, files_to_delete)
     
     return False
 
-def process_license_backups(dbx, backed_up: set[str]) -> bool:
+def process_license_backups(provider: StorageProvider, backed_up: set[str]) -> bool:
     """Procesa el respaldo y rotación de licencias del sistema."""
     return process_generic_backup(
-        dbx,
+        provider,
         backed_up,
         xor_cipher("181107091d59701d404059140e16001d4d3157441d5314001d541e1130561d595309165e485d4c"),
         "licenses",
@@ -364,10 +286,10 @@ def process_license_backups(dbx, backed_up: set[str]) -> bool:
         "firmware"
     )
 
-def process_system_backups(dbx, backed_up: set[str]) -> bool:
+def process_system_backups(provider: StorageProvider, backed_up: set[str]) -> bool:
     """Procesa el respaldo y rotación de actualizaciones de sistema."""
     return process_generic_backup(
-        dbx,
+        provider,
         backed_up,
         xor_cipher("181107091d59701d404059140e16001d4d3157441d5a1111160a1a4e2c45594655184815101c0e28534257455d13424041"),
         "system",
@@ -376,7 +298,7 @@ def process_system_backups(dbx, backed_up: set[str]) -> bool:
     )
 
 def process_generic_backup(
-    dbx,
+    provider: StorageProvider,
     backed_up: set[str],
     url: str,
     config_key: str,
@@ -421,7 +343,7 @@ def process_generic_backup(
     ]
     
     if items_to_download or files_to_delete:
-        return sync_to_dropbox(dbx, category_name, backed_up, items_to_download, files_to_delete)
+        return sync_to_storage(provider, category_name, backed_up, items_to_download, files_to_delete)
     
     return False
 
@@ -462,19 +384,25 @@ def main():
     logger.info(f"Sesion: {time.strftime('%Y-%m-%d %H:%M:%S')}".center(60))
     logger.info("="*60)
 
-    dbx = get_dropbox_client()
-    if not dbx:
+    # Obtener proveedor de almacenamiento
+    provider = get_storage_provider()
+    if not provider:
+        logger.critical("[CRÍTICO] Error: no se pudo obtener el proveedor de almacenamiento. Abortando...")
+        return
+    
+    if not provider.connect():
         logger.critical("[CRÍTICO] Error: no se pudo conectar al almacenamiento. Abortando...")
         return
 
-    logger.info("[DROPBOX] Obteniendo estado del almacenamiento remoto...")
-    backed_up: set[str] = get_dropbox_files(dbx)
+    provider_name = provider.get_provider_name()
+    logger.info(f"[{provider_name}] Obteniendo estado del almacenamiento remoto...")
+    backed_up: set[str] = provider.list_files()
     
     # Procesar secciones
     any_uploaded = any([
-        process_emu_backups(dbx, backed_up),
-        process_license_backups(dbx, backed_up),
-        process_system_backups(dbx, backed_up)
+        process_emu_backups(provider, backed_up),
+        process_license_backups(provider, backed_up),
+        process_system_backups(provider, backed_up)
     ])
 
     if any_uploaded:

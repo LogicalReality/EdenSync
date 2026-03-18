@@ -43,10 +43,24 @@ pip install -r requirements.txt
 
 ## ⚙️ Configuración
 
-Para habilitar la sincronización remota, configura las siguientes variables de entorno (por ejemplo, como GitHub Actions Repository Secrets):
+Para habilitar la sincronización remota, primero selecciona el proveedor de almacenamiento que deseas usar (Dropbox o Google Drive) y luego configura las variables de entorno necesarias.
+
+### Seleccionar Proveedor de Almacenamiento
+
+PESync soporta múltiples proveedores de almacenamiento. Para seleccionar cuál usar, configura la variable `STORAGE_PROVIDER`:
+
+| Valor | Proveedor |
+| :--- | :--- |
+| `dropbox` | Dropbox (por defecto) |
+| `googledrive` | Google Drive |
+
+### Configuración de Dropbox
+
+Para Dropbox, configura las siguientes variables de entorno:
 
 | Variable | Propósito |
 | :--- | :--- |
+| `STORAGE_PROVIDER` | Establece `dropbox` |
 | `DROPBOX_APP_KEY` | Llave de acceso de la API de Dropbox. |
 | `DROPBOX_APP_SECRET` | Secreto de la API de Dropbox. |
 | `DROPBOX_REFRESH_TOKEN` | Token de actualización de sesión. |
