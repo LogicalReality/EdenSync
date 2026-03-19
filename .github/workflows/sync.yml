@@ -1,4 +1,4 @@
-name: PESync to Dropbox
+name: PESync Auto-Sync
 
 on:
   schedule:
