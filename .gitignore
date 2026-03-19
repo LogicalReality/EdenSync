@@ -4,6 +4,7 @@ __pycache__/
 .kilocode
 logs/
 .local/
+MEMORIA.md
 
 # Secrets and credentials
 *.json
