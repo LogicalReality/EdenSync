@@ -24,8 +24,8 @@ graph LR
 - **Límites de Versiones Configurable**: Permite definir cuántas versiones mantener de cada componente de forma independiente.
 - **Rotación Automática y Auto-Limpieza**: El script identifica y elimina automáticamente versiones obsoletas en la nube para mantener solo lo más reciente según la configuración.
 - **Almacenamiento Seguro**: Integración con múltiples servicios en la nube (Dropbox, Google Drive).
-- **Registro y Resumen Detallado**: Implementación de un Console Logger para seguimiento en vivo y visualización de un resumen final de los componentes procesados.
-- **Peticiones Seguras y Validadas**: Peticiones de red optimizadas mediante `requests`, validación robusta de activos descargables.
+- **Registro y Resumen Detallado**: Implementación de un Console Logger premium para seguimiento en vivo y visualización de un resumen final limpio (versiones procesadas sin extensiones redundantes).
+- **Detección Inteligente de Versiones**: Soporte mejorado y robusto para la extracción de versiones, compatible con diversas nomenclaturas y extensiones (insensible a mayúsculas/minúsculas como `.zip` y `.ZIP`).
 - **Feedback Visual (Progreso)**: Muestra barras de progreso detalladas (0-100%) en consola tanto para la descarga de archivos como para la subida a los servicios de nube (Dropbox/Google Drive).
 
 ## 📋 Requisitos Previos
@@ -69,7 +69,8 @@ Para la ejecución en entorno local, dependiendo del proveedor seleccionado, con
 - `GOOGLE_DRIVE_CLIENT_ID`: ID del cliente OAuth.
 - `GOOGLE_DRIVE_CLIENT_SECRET`: Secreto del cliente OAuth.
 - `GOOGLE_DRIVE_REFRESH_TOKEN`: Token de actualización de sesión.
-- `GOOGLE_DRIVE_FOLDER`: *(Opcional)* Nombre de la carpeta de respaldo en Google Drive. Por defecto es `PESync_Backup`.
+- `GOOGLE_DRIVE_FOLDER`: *(Opcional)* Nombre de la carpeta de respaldo. Por defecto es `PESync_Backup`.
+- `GOOGLE_DRIVE_FOLDER_ID`: *(Opcional)* ID directo de la carpeta en Google Drive. Si se proporciona, tiene prioridad sobre el nombre.
 
 > [!CAUTION]
 > **ENTORNO LOCAL**: El archivo `.env` es **exclusivo para ejecución local**. Nunca lo subas a un repositorio público (ya está mitigado por `.gitignore`). Para entornos automatizados (como GitHub Actions), utiliza los *Secrets* del repositorio.
@@ -109,6 +110,21 @@ BACKUP_CONFIG = {
 > [!NOTE]
 > El script utiliza un sistema de **rotación basada en la fuente**. Si una versión ya no está entre las `N` más recientes de la fuente oficial, será eliminada automáticamente de la nube para dejar espacio a las nuevas.
 
+## 🤖 Automatización (GitHub Actions)
+
+PESync está diseñado para ejecutarse de forma totalmente desatendida mediante GitHub Actions. El flujo de trabajo incluido (`.github/workflows/sync.yml`) se encarga de:
+
+1. **Ejecución Programada**: Por defecto, se ejecuta dos veces al día (00:00 y 12:00 UTC).
+2. **Gestión de Secretos**: Utiliza los **GitHub Secrets** para inyectar de forma segura las credenciales de Dropbox o Google Drive.
+3. **Eficiencia**: El entorno de ejecución se limpia automáticamente tras cada sesión.
+
+### Cómo configurar la automatización
+
+1. **Workflow Pre-configurado**: El archivo `.github/workflows/sync.yml` ya está incluido en el repositorio. **No necesitas editarlo**.
+2. **Configuración de Secrets**: Solo debes añadir las variables de entorno como **Repository Secrets** en GitHub:
+    - Ve a tu repositorio > **Settings** > **Secrets and variables** > **Actions**.
+    - Haz clic en **New repository secret** por cada variable necesaria.
+
 ### Eficiencia y Monitoreo
 
 El sistema divide automáticamente las subidas grandes en bloques fijos de **8MB**. Este valor está optimizado para garantizar alta velocidad con la máxima fluidez en las barras de progreso, además de mantener un consumo de RAM casi nulo.
@@ -127,7 +143,7 @@ El proyecto sigue principios de Clean Code, dividiendo las responsabilidades en 
 - `src/core/`: Contiene la lógica central de sincronización y procesamiento de archivos (`backup_logic.py`).
 - `src/providers/`: Gestiona la integración con los proveedores de almacenamiento en la nube (Dropbox, Google Drive).
 - `src/network/`: Centraliza todas las operaciones de red y descargas HTTP usando `requests`.
-- `src/utils/`: Módulos de herramientas compartidas (formateo, seguridad, logging centralizado).
-- `scripts/setup_storage.py`: Utilidad de configuración inicial (OAuth) para el almacenamiento en la nube.
-- `scripts/test_sync.py`: Script de validación rápida de conexión y credenciales (`.env`).
+- `src/utils/`: Herramientas compartidas (formateo, logging) y **Salud del Sistema** (`health_checks.py`).
+- `scripts/setup_storage.py`: Utilidad interactiva para la configuración inicial y OAuth.
+- `scripts/test_sync.py`: Atajo para validación rápida de conexión sin iniciar el asistente.
 - `requirements.txt`: Definición de dependencias del proyecto.
