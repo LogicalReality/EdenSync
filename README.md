@@ -71,6 +71,7 @@ Para la ejecución en entorno local, dependiendo del proveedor seleccionado, con
 - `GOOGLE_DRIVE_REFRESH_TOKEN`: Token de actualización de sesión.
 - `GOOGLE_DRIVE_FOLDER`: *(Opcional)* Nombre de la carpeta de respaldo. Por defecto es `PESync_Backup`.
 - `GOOGLE_DRIVE_FOLDER_ID`: *(Opcional)* ID directo de la carpeta en Google Drive. Si se proporciona, tiene prioridad sobre el nombre.
+- `BACKUP_COUNT`: *(Opcional)* Cantidad de versiones a mantener de cada componente. Por defecto es `2`.
 
 > [!CAUTION]
 > **ENTORNO LOCAL**: El archivo `.env` es **exclusivo para ejecución local**. Nunca lo subas a un repositorio público (ya está mitigado por `.gitignore`). Para entornos automatizados (como GitHub Actions), utiliza los *Secrets* del repositorio.
@@ -97,15 +98,12 @@ Este script valida que las llaves guardadas en el archivo `.env` (u obtenidas v�
 
 ### Configuración de Versiones
 
-Puedes personalizar cuántas versiones respaldar editando el diccionario `BACKUP_CONFIG` al inicio de `src/utils/helpers.py`:
+PESync permite definir cuántas versiones de cada componente mantener en la nube. Puedes configurar esto de dos maneras:
 
-```python
-BACKUP_CONFIG = {
-    "emu": 2,       # Versiones del Emu
-    "licenses": 2,  # Versiones de Licencias
-    "system": 2     # Versiones de Firmware/Sistema
-}
-```
+1. **Durante el Setup:** Al ejecutar `python scripts/setup_storage.py`, el asistente te preguntará cuántas versiones deseas mantener (por defecto 2).
+2. **Variable de Entorno:** Configura `BACKUP_COUNT` en tu archivo `.env` o como Repository Secret en GitHub.
+
+Si `BACKUP_COUNT` no está definido, el sistema usará el valor predeterminado de **2**.
 
 > [!NOTE]
 > El script utiliza un sistema de **rotación basada en la fuente**. Si una versión ya no está entre las `N` más recientes de la fuente oficial, será eliminada automáticamente de la nube para dejar espacio a las nuevas.

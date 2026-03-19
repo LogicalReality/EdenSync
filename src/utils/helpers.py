@@ -5,7 +5,7 @@ import time
 import logging
 import logging.handlers
 import re
-from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn
+from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn  # type: ignore
 
 def create_shared_progress() -> Progress:
     """Crea una barra de progreso estilo pip para usar con administradores de contexto."""
@@ -31,10 +31,19 @@ VERSION_REGEX = re.compile(r'(\d+\.\d+[\d.]*)\.zip', re.IGNORECASE)
 TAG_REGEX = re.compile(r'v\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z0-9]+)?')
 
 # Configuración de cantidad de versiones a respaldar
+def _get_backup_count() -> int:
+    try:
+        count = int(os.environ.get("BACKUP_COUNT", 2))
+        return count if count > 0 else 2
+    except (ValueError, TypeError):
+        return 2
+
+BACKUP_COUNT = _get_backup_count()
+
 BACKUP_CONFIG = {
-    "emu": 2,
-    "licenses": 2,
-    "system": 2
+    "emu": BACKUP_COUNT,
+    "licenses": BACKUP_COUNT,
+    "system": BACKUP_COUNT
 }
 
 # ==========================================

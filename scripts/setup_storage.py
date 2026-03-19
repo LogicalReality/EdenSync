@@ -9,6 +9,21 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from src.utils.health_checks import test_dropbox_connection, test_google_drive_connection # type: ignore
 
+def get_backup_count_input() -> int:
+    """Solicita al usuario la cantidad de versiones a mantener."""
+    print("\n" + "-" * 60)
+    print("CONFIGURACIÓN DE RESPALDOS")
+    try:
+        val = input("¿Cuántas versiones deseas mantener de cada componente? (Presiona ENTER para usar 2): ").strip()
+        if not val:
+            return 2
+        count = int(val)
+        return count if count > 0 else 2
+    except ValueError:
+        print("⚠️ Valor no válido. Se usará el predeterminado (2).")
+        return 2
+
+
 def main():
     print("=" * 60)
     print("Bienvenido al Asistente de Configuración de Almacenamiento")
@@ -102,6 +117,9 @@ def setup_dropbox():
         
         print("=" * 60)
         
+        # Preguntar por la cantidad de respaldos
+        backup_count = get_backup_count_input()
+        
         # Intentar escribir automáticamente en .env en la RAÍZ del proyecto
         try:
             import os
@@ -110,6 +128,7 @@ def setup_dropbox():
                 env_file.write(f"DROPBOX_APP_KEY={app_key}\n")
                 env_file.write(f"DROPBOX_APP_SECRET={app_secret}\n")
                 env_file.write(f"DROPBOX_REFRESH_TOKEN={refresh_token}\n")
+                env_file.write(f"BACKUP_COUNT={backup_count}\n")
                 env_file.write(f"STORAGE_PROVIDER=dropbox\n")
             print("✅ El archivo .env ha sido actualizado automáticamente.")
         except Exception as e:
@@ -311,6 +330,9 @@ def setup_google_drive():
     print("  5. GOOGLE_DRIVE_FOLDER_ID     (el ID de la carpeta)")
     print("-" * 60)
     
+    # Preguntar por la cantidad de respaldos
+    backup_count = get_backup_count_input()
+    
     # Intentar escribir automáticamente en .env en la RAÍZ del proyecto
     try:
         env_path = os.path.join(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')), '.env')
@@ -319,6 +341,7 @@ def setup_google_drive():
             env_file.write(f"GOOGLE_DRIVE_CLIENT_SECRET={client_secret}\n")
             env_file.write(f"GOOGLE_DRIVE_REFRESH_TOKEN={refresh_token}\n")
             env_file.write(f"GOOGLE_DRIVE_FOLDER_ID={folder_id}\n")
+            env_file.write(f"BACKUP_COUNT={backup_count}\n")
             env_file.write(f"STORAGE_PROVIDER=googledrive\n")
         print("✅ El archivo .env ha sido actualizado automáticamente.")
     except Exception as e:
