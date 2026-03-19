@@ -4,7 +4,7 @@ import time
 import logging
 import logging.handlers
 import re
-from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn
+from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn # type: ignore
 
 def create_shared_progress() -> Progress:
     """Crea una barra de progreso estilo pip para usar con administradores de contexto."""
