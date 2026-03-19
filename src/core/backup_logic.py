@@ -1,4 +1,3 @@
-# pyre-ignore-all-errors[21]
 """PESync - Herramienta de sincronización y respaldo para Pro Evolution Soccer."""
 from __future__ import annotations
 import os
@@ -76,7 +75,8 @@ def sync_to_storage(
 
             with create_shared_progress() as progress:
                 with ThreadPoolExecutor(max_workers=4) as executor:
-                    futures = {executor.submit(_download, item, progress): item for item in all_items_to_download} # type: ignore
+                    # pyre-ignore[6]: Pyre tiene problemas infiriendo la firma de funciones locales en submit()
+                    futures = {executor.submit(_download, item, progress): item for item in all_items_to_download}
                     for future in as_completed(futures):
                         result = future.result()
                         if result:

@@ -1,11 +1,10 @@
-# pyre-ignore-all-errors[21]
 from __future__ import annotations
 import os
 import time
 import logging
 import logging.handlers
 import re
-from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn  # type: ignore
+from rich.progress import Progress, TextColumn, BarColumn, DownloadColumn, TransferSpeedColumn, TimeRemainingColumn
 
 def create_shared_progress() -> Progress:
     """Crea una barra de progreso estilo pip para usar con administradores de contexto."""

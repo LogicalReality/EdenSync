@@ -1,7 +1,3 @@
-"""
-Módulo de comprobación de salud para PESync.
-Proporciona funciones para verificar la conectividad con los proveedores de almacenamiento.
-"""
 import os
 import sys
 from typing import Optional
