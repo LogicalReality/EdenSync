@@ -5,7 +5,8 @@ import os
 import logging
 import time
 from typing import Any
-import requests # type: ignore
+from types import TracebackType
+import requests  # type: ignore
 
 logger = logging.getLogger("pesync.notifications")
 
@@ -78,6 +79,37 @@ class TelegramNotifier:
                 lines.append(f"   • `{filename}`")
 
         lines.append(f"\n☁️ *Provider:* {provider_name}")
+
+        text = "\n".join(lines)
+        return self.send_message(text)
+
+    def send_error_notification(
+        self, exc_type: type, exc_value: BaseException, exc_tb: TracebackType | None
+    ) -> bool:
+        import traceback
+        from datetime import datetime
+
+        lines = [
+            "❌ *PESync - Error Crítico*\n",
+            f"📅 *Fecha:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n",
+            f"⚠️ *Tipo:* {exc_type.__name__}\n",
+            f"📝 *Mensaje:*\n",
+            "```",
+            str(exc_value),
+            "```\n",
+            "🔍 *Stack Trace:*\n",
+            "```",
+        ]
+
+        if exc_tb:
+            stack_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
+            stack_text = "".join(stack_lines)
+            stack_text = stack_text[:4000]
+        else:
+            stack_text = "No traceback available"
+
+        lines.append(stack_text)
+        lines.append("```")
 
         text = "\n".join(lines)
         return self.send_message(text)

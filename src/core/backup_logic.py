@@ -16,10 +16,10 @@ from src.providers.storage_providers import (  # type: ignore
     StorageProvider,
 )
 
-from src.utils.notifications import TelegramNotifier # type: ignore
+from src.utils.notifications import TelegramNotifier  # type: ignore
 
 # Importar utilidades y red
-from src.utils.helpers import (    # type: ignore
+from src.utils.helpers import (  # type: ignore
     logger,
     BACKUP_CONFIG,
     EMU_ASSET_IDENTIFIER,
@@ -271,80 +271,95 @@ def display_backup_summary(backed_up: set[str]):
 
 
 def main():
-    # Banner de inicio de sesión
-    logger.info("=" * 60)
-    logger.info("INICIANDO NUEVA SESION DE SINCRONIZACION".center(60))
-    logger.info(f"Sesion: {time.strftime('%Y-%m-%d %H:%M:%S')}".center(60))
-    logger.info("=" * 60)
+    notifier = TelegramNotifier()
 
-    # Obtener proveedor de almacenamiento
-    provider = get_storage_provider()
-    if not provider:
-        logger.critical(
-            "[CRÍTICO] Error: no se pudo obtener el proveedor de almacenamiento. Abortando..."
+    try:
+        # Banner de inicio de sesión
+        logger.info("=" * 60)
+        logger.info("INICIANDO NUEVA SESION DE SINCRONIZACION".center(60))
+        logger.info(f"Sesion: {time.strftime('%Y-%m-%d %H:%M:%S')}".center(60))
+        logger.info("=" * 60)
+
+        # Obtener proveedor de almacenamiento
+        provider = get_storage_provider()
+        if not provider:
+            logger.critical(
+                "[CRÍTICO] Error: no se pudo obtener el proveedor de almacenamiento. Abortando..."
+            )
+            notifier.send_error_notification(
+                Exception,
+                Exception("No se pudo obtener el proveedor de almacenamiento"),
+                None,
+            )
+            return
+
+        if not provider.connect():
+            logger.critical(
+                "[CRÍTICO] Error: no se pudo conectar al almacenamiento. Abortando..."
+            )
+            notifier.send_error_notification(
+                Exception, Exception("No se pudo conectar al almacenamiento"), None
+            )
+            return
+
+        provider_name = provider.get_provider_name()
+        logger.info(f"[{provider_name}] Obteniendo estado del almacenamiento remoto...")
+        backed_up: set[str] = provider.list_files()
+
+        # ── Fase 1: Recopilar pendientes de TODAS las categorías ──────────────────
+        logger.info("[SYNC] Fase 1: Verificando pendientes en todas las categorías...")
+        emu_items, emu_delete = collect_emu_pending(backed_up)
+
+        lic_items, lic_delete = collect_generic_pending(
+            backed_up,
+            xor_cipher(
+                "181107091d59701d404059140e16001d4d3157441d5314001d541e1130561d595309165e485d4c"
+            ),
+            "licenses",
+            "LICENCIAS",
+            ".zip",
+            "firmware",
         )
-        return
 
-    if not provider.connect():
-        logger.critical(
-            "[CRÍTICO] Error: no se pudo conectar al almacenamiento. Abortando..."
+        sys_items, sys_delete = collect_generic_pending(
+            backed_up,
+            xor_cipher(
+                "181107091d59701d404059140e16001d4d3157441d5a1111160a1a4e2c45594655184815101c0e28534257455d13424041"
+            ),
+            "system",
+            "SISTEMA",
+            "firmware",
         )
-        return
 
-    provider_name = provider.get_provider_name()
-    logger.info(f"[{provider_name}] Obteniendo estado del almacenamiento remoto...")
-    backed_up: set[str] = provider.list_files()
+        all_items = emu_items + lic_items + sys_items
+        all_deletes = emu_delete + lic_delete + sys_delete
 
-    # ── Fase 1: Recopilar pendientes de TODAS las categorías ──────────────────
-    logger.info("[SYNC] Fase 1: Verificando pendientes en todas las categorías...")
-    emu_items, emu_delete = collect_emu_pending(backed_up)
+        # ── Fase 2: Descargar todo en paralelo y subir en batch ───────────────────
+        uploaded_files: list[tuple[str, str]] = []
+        deleted_files: list[str] = []
 
-    lic_items, lic_delete = collect_generic_pending(
-        backed_up,
-        xor_cipher(
-            "181107091d59701d404059140e16001d4d3157441d5314001d541e1130561d595309165e485d4c"
-        ),
-        "licenses",
-        "LICENCIAS",
-        ".zip",
-        "firmware",
-    )
+        if all_items or all_deletes:
+            logger.info(
+                f"[SYNC] Fase 2: {len(all_items)} archivos pendientes de subir, {len(all_deletes)} a eliminar."
+            )
+            any_uploaded, uploaded_files, deleted_files = sync_to_storage(
+                provider, backed_up, all_items, all_deletes
+            )
+        else:
+            any_uploaded = False
 
-    sys_items, sys_delete = collect_generic_pending(
-        backed_up,
-        xor_cipher(
-            "181107091d59701d404059140e16001d4d3157441d5a1111160a1a4e2c45594655184815101c0e28534257455d13424041"
-        ),
-        "system",
-        "SISTEMA",
-        "firmware",
-    )
+        if any_uploaded:
+            logger.info("Actualizacion de archivos completada.")
+            notifier.send_sync_summary(uploaded_files, deleted_files, provider_name)
+        else:
+            logger.info("No hay nuevas actualizaciones.")
 
-    all_items = emu_items + lic_items + sys_items
-    all_deletes = emu_delete + lic_delete + sys_delete
+        display_backup_summary(backed_up)
 
-    # ── Fase 2: Descargar todo en paralelo y subir en batch ───────────────────
-    uploaded_files: list[tuple[str, str]] = []
-    deleted_files: list[str] = []
-
-    if all_items or all_deletes:
-        logger.info(
-            f"[SYNC] Fase 2: {len(all_items)} archivos pendientes de subir, {len(all_deletes)} a eliminar."
-        )
-        any_uploaded, uploaded_files, deleted_files = sync_to_storage(
-            provider, backed_up, all_items, all_deletes
-        )
-    else:
-        any_uploaded = False
-
-    if any_uploaded:
-        logger.info("Actualizacion de archivos completada.")
-        notifier = TelegramNotifier()
-        notifier.send_sync_summary(uploaded_files, deleted_files, provider_name)
-    else:
-        logger.info("No hay nuevas actualizaciones.")
-
-    display_backup_summary(backed_up)
+    except Exception as e:
+        notifier.send_error_notification(type(e), e, e.__traceback__)
+        logger.critical(f"[CRÍTICO] {e}")
+        raise
 
 
 if __name__ == "__main__":
