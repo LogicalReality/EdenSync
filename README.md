@@ -80,7 +80,11 @@ Para la ejecución en entorno local, dependiendo del proveedor seleccionado, con
 Para obtener estas credenciales, ejecuta el asistente interactivo:
 
 ```bash
-python scripts/setup_storage.py
+# Opción 1: Ejecutar archivo .bat (Windows)
+.\pesync_setup.bat
+
+# Opción 2: Usar el comando CLI
+python main.py setup
 ```
 
 Sigue las instrucciones en pantalla para autorizar la aplicación en tu cuenta de Dropbox o Google Drive. Al finalizar, el script intentará crear/actualizar el archivo `.env` automáticamente.
@@ -90,10 +94,26 @@ Sigue las instrucciones en pantalla para autorizar la aplicación en tu cuenta d
 Antes de la primera ejecución o tras actualizar tus credenciales, verifica que todo funcione correctamente:
 
 ```bash
-python scripts/test_sync.py
+# Opción 1: Ejecutar archivo .bat (Windows)
+.\pesync_test.bat
+
+# Opción 2: Usar el comando CLI
+python main.py test
 ```
 
 Este script valida que las llaves guardadas en el archivo `.env` (u obtenidas vía Secrets) sean funcionales y tengan los permisos necesarios.
+
+### Consultar Estado del Backup
+
+Puedes ver rápidamente qué archivos tienes en la nube sin iniciar una sincronización:
+
+```bash
+# Opción 1: Ejecutar archivo .bat (Windows)
+.\pesync_status.bat
+
+# Opción 2: Usar el comando CLI
+python main.py status
+```
 
 ### Configuración de Versiones
 
@@ -171,20 +191,21 @@ El sistema divide automáticamente las subidas grandes en bloques fijos de **8MB
 
 ### Resumen de Uso
 
-1. **Obtener Credenciales:** `python scripts/setup_storage.py` (creará el `.env`).
-2. **Validar Conexión:** `python scripts/test_sync.py` (verificará acceso a la nube).
-3. **Ejecutar Sincronización:** `python main.py`.
+1. **Obtener Credenciales:** Ejecuta `pesync_setup.bat`.
+2. **Validar Conexión:** Ejecuta `pesync_test.bat`.
+3. **Ejecutar Sincronización:** Ejecuta `iniciar_pesync.bat` o `python main.py`.
 
 ## 🛠 Estructura (Arquitectura Modular)
 
 El proyecto sigue principios de Clean Code, dividiendo las responsabilidades en módulos independientes:
 
-- `main.py`: Punto de entrada principal que orquesta la ejecución del script.
+- `main.py`: Punto de entrada principal (Typer CLI).
+- `src/cli/`: Lógica de la interfaz de comandos y orquestación de sub-comandos.
 - `src/core/`: Contiene la lógica central de sincronización y procesamiento de archivos (`backup_logic.py`).
 - `src/providers/`: Gestiona la integración con los proveedores de almacenamiento en la nube (Dropbox, Google Drive).
 - `src/network/`: Centraliza todas las operaciones de red y descargas HTTP usando `requests`.
-- `src/utils/`: Herramientas compartidas (formateo, logging), sistema de notificaciones Telegram (`notifications.py`) y salud del sistema (`health_checks.py`).
-- `scripts/setup_storage.py`: Utilidad interactiva para la configuración inicial y OAuth.
-- `scripts/test_sync.py`: Atajo para validación rápida de conexión sin iniciar el asistente.
-- `tests/`: Suite completa de pruebas automatizadas (integridad, reintentos, helpers y proveedores).
+- `src/utils/`: Herramientas compartidas (formateo, logging), sistema de notificaciones Telegram e integridad.
+- `scripts/`: Scripts heredados y auxiliares para configuración inicial.
+- `tests/`: Suite completa de pruebas automatizadas.
 - `requirements.txt`: Definición de dependencias del proyecto.
+- `*.bat`: Lanzadores rápidos para Windows.
