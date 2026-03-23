@@ -15,3 +15,6 @@ sync:
 providers:
   default: "dropbox"
   google_drive_folder: "PESync_Backup"
+
+notifications:
+  telegram_enabled: true

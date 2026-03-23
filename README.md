@@ -21,11 +21,9 @@ graph LR
 ## 🚀 Características
 
 - **Estado basado en la Nube**: El script consulta directamente el almacenamiento remoto al iniciar para determinar qué recursos ya están respaldados.
-- **Límites de Versiones Configurable**: Permite definir cuántas versiones mantener de cada componente de forma independiente.
 - **Rotación Automática y Auto-Limpieza**: El script identifica y elimina automáticamente versiones obsoletas en la nube para mantener solo lo más reciente según la configuración.
 - **Almacenamiento Seguro**: Integración con múltiples servicios en la nube (Dropbox, Google Drive).
-- **Registro y Resumen Detallado**: Implementación de un Console Logger premium para seguimiento en vivo y visualización de un resumen final limpio (versiones procesadas sin extensiones redundantes).
-- **Detección Inteligente de Versiones**: Soporte mejorado y robusto para la extracción de versiones, compatible con diversas nomenclaturas y extensiones (insensible a mayúsculas/minúsculas como `.zip` y `.ZIP`).
+- **Verificación de Integridad (SHA256)**: Cada archivo descargado se valida mediante su firma digital.
 - **Feedback Visual (Progreso)**: Muestra barras de progreso detalladas (0-100%) en consola tanto para la descarga de archivos como para la subida a los servicios de nube (Dropbox/Google Drive).
 - **Notificaciones Telegram**: Envía mensajes automáticos cuando se completan sincronizaciones exitosas o cuando ocurren errores críticos.
 
@@ -123,21 +121,31 @@ PESync puede enviarte notificaciones por Telegram para mantenerte informado del 
 1. **Obtener el token del bot:**
    - Habla con [@BotFather](https://t.me/botfather) en Telegram
    - Envía `/newbot` y sigue las instrucciones
+1. **Obtener el token del bot:**
+   - Habla con [@BotFather](https://t.me/botfather) en Telegram
+   - Envía `/newbot` y sigue las instrucciones
    - Copia el token (ejemplo: `123456:ABC-DEF...`)
 
-2. **Obtener tu Chat ID:**
+1. **Obtener tu Chat ID:**
    - Habla con [@userinfobot](https://t.me/userinfobot)
    - Te mostrará tu `id` (ejemplo: `987654321`)
 
-3. **Configurar en `.env`:**
+1. **Configurar en `.env` (Datos Sensibles)**:
+
    ```env
    TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
    TELEGRAM_CHAT_ID=987654321
-   TELEGRAM_NOTIFICATIONS=true
+   ```
+
+1. **Habilitar en `config.yaml`**:
+
+   ```yaml
+   notifications:
+     telegram_enabled: true
    ```
 
 **Notas:**
-- Si `TELEGRAM_NOTIFICATIONS=false` o las variables están vacías, no se enviarán notificaciones
+- Si `notifications.telegram_enabled: false` o las variables están vacías, no se enviarán notificaciones
 - La notificación de éxito solo se envía cuando hay nuevas versiones subidas (no en cada ejecución)
 - La notificación de error se envía automáticamente cuando ocurre un error crítico
 - Los errores de Telegram se loguean pero no bloquean la ejecución
@@ -178,4 +186,5 @@ El proyecto sigue principios de Clean Code, dividiendo las responsabilidades en 
 - `src/utils/`: Herramientas compartidas (formateo, logging), sistema de notificaciones Telegram (`notifications.py`) y salud del sistema (`health_checks.py`).
 - `scripts/setup_storage.py`: Utilidad interactiva para la configuración inicial y OAuth.
 - `scripts/test_sync.py`: Atajo para validación rápida de conexión sin iniciar el asistente.
+- `tests/`: Suite completa de pruebas automatizadas (integridad, reintentos, helpers y proveedores).
 - `requirements.txt`: Definición de dependencias del proyecto.

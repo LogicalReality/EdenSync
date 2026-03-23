@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
-import yaml
+import yaml # type: ignore
 
 CONFIG_FILE = Path(__file__).parent.parent / "config.yaml"
 
@@ -101,6 +101,10 @@ class Config:
     @property
     def google_drive_folder(self) -> str:
         return self._data["providers"]["google_drive_folder"]
+
+    @property
+    def telegram_enabled(self) -> bool:
+        return bool(self._data.get("notifications", {}).get("telegram_enabled", False))
 
 
 config = Config()

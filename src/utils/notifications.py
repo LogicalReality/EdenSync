@@ -7,6 +7,7 @@ import time
 from typing import Any
 from types import TracebackType
 import requests  # type: ignore
+from src.config import config # type: ignore
 
 logger = logging.getLogger("pesync.notifications")
 
@@ -18,9 +19,7 @@ class TelegramNotifier:
     def __init__(self, bot_token: str | None = None, chat_id: str | None = None):
         self.bot_token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
         self.chat_id = chat_id or os.environ.get("TELEGRAM_CHAT_ID", "")
-        self.enabled = (
-            os.environ.get("TELEGRAM_NOTIFICATIONS", "true").lower() == "true"
-        )
+        self.enabled = config.telegram_enabled
         self.api_url = (
             f"https://api.telegram.org/bot{self.bot_token}" if self.bot_token else ""
         )
@@ -84,7 +83,10 @@ class TelegramNotifier:
         return self.send_message(text)
 
     def send_error_notification(
-        self, exc_type: type, exc_value: BaseException, exc_tb: TracebackType | None
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        exc_tb: TracebackType | None,
     ) -> bool:
         import traceback
         from datetime import datetime
@@ -92,7 +94,7 @@ class TelegramNotifier:
         lines = [
             "❌ *PESync - Error Crítico*\n",
             f"📅 *Fecha:* {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n",
-            f"⚠️ *Tipo:* {exc_type.__name__}\n",
+            f"⚠️ *Tipo:* {exc_type.__name__ if exc_type else 'UnknownError'}\n",
             f"📝 *Mensaje:*\n",
             "```",
             str(exc_value),
@@ -102,9 +104,11 @@ class TelegramNotifier:
         ]
 
         if exc_tb:
+            # Modern way: just pass the exception object if possible, or all three
             stack_lines = traceback.format_exception(exc_type, exc_value, exc_tb)
             stack_text = "".join(stack_lines)
-            stack_text = stack_text[:4000]
+            if len(stack_text) > 4000:
+                stack_text = stack_text[:4000] + "\n... (truncated)"
         else:
             stack_text = "No traceback available"
 
