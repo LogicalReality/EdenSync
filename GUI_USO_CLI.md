@@ -20,6 +20,7 @@ He creado 4 archivos `.bat` en la raíz del proyecto para que no tengas que escr
 Si prefieres la terminal, ahora tienes comandos claros. Asegúrate de estar en la carpeta del proyecto:
 
 ### 1. Sincronización (Predeterminado)
+
 ```bash
 python main.py
 # o también:
@@ -27,21 +28,25 @@ python main.py sync
 ```
 
 ### 2. Ver estado de la nube
+
 ```bash
 python main.py status
 ```
 
 ### 3. Asistente de configuración
+
 ```bash
 python main.py setup
 ```
 
 ### 4. Diagnóstico de conexión
+
 ```bash
 python main.py test
 ```
 
 ### 5. Ayuda detallada
+
 ```bash
 python main.py --help
 ```
