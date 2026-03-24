@@ -6,8 +6,8 @@ import logging
 import time
 from typing import Any
 from types import TracebackType
-import requests  # type: ignore
-from src.config import config # type: ignore
+import requests
+from src.config import config
 
 logger = logging.getLogger("pesync.notifications")
 
@@ -16,7 +16,7 @@ RETRY_DELAY = 2
 
 
 class TelegramNotifier:
-    def __init__(self, bot_token: str | None = None, chat_id: str | None = None):
+    def __init__(self, bot_token: str | None = None, chat_id: str | None = None) -> None:
         self.bot_token = bot_token or os.environ.get("TELEGRAM_BOT_TOKEN", "")
         self.chat_id = chat_id or os.environ.get("TELEGRAM_CHAT_ID", "")
         self.enabled = config.telegram_enabled

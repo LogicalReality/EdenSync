@@ -1,10 +1,10 @@
-import typer # type: ignore
-from src.utils.helpers import logger # type: ignore
+import typer
+from src.utils.helpers import logger
 
 app = typer.Typer(help="PESync CLI - Gestión de backups de emulación", invoke_without_command=True)
 
 @app.callback()
-def main(ctx: typer.Context):
+def main(ctx: typer.Context) -> None:
     """
     PESync: Sincronización inteligente de componentes de emulación.
     Si se ejecuta sin comandos, inicia la sincronización predeterminada.
@@ -13,21 +13,21 @@ def main(ctx: typer.Context):
         sync()
 
 @app.command()
-def sync():
+def sync() -> None:
     """Ejecuta el flujo completo de sincronización y respaldo."""
-    from src.core.backup_logic import main as core_sync # type: ignore
+    from src.core.backup_logic import main as core_sync
     core_sync()
 
 @app.command()
-def setup():
+def setup() -> None:
     """Lanza el asistente interactivo de configuración (Dropbox/Google Drive)."""
-    from scripts.setup_storage import main as script_setup # type: ignore
+    from scripts.setup_storage import main as script_setup
     script_setup()
 
 @app.command()
-def test():
+def test() -> None:
     """Realiza pruebas de salud y conectividad con los proveedores configurados."""
-    from src.utils.health_checks import run_all_checks # type: ignore
+    from src.utils.health_checks import run_all_checks
     try:
         run_all_checks()
     except Exception as e:
@@ -35,10 +35,10 @@ def test():
         raise typer.Exit(code=1)
 
 @app.command()
-def status():
+def status() -> None:
     """Muestra el estado actual de los archivos en el almacenamiento remoto."""
-    from src.providers.storage_providers import get_storage_provider # type: ignore
-    from src.core.backup_logic import display_backup_summary # type: ignore
+    from src.providers.storage_providers import get_storage_provider
+    from src.core.backup_logic import display_backup_summary
     
     provider = get_storage_provider()
     if not provider or not provider.connect():

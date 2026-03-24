@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
-import yaml # type: ignore
+import yaml
 
 CONFIG_FILE = Path(__file__).parent.parent / "config.yaml"
 
@@ -26,7 +26,11 @@ def _load_yaml() -> dict[str, Any]:
         raise FileNotFoundError(f"Config file not found: {CONFIG_FILE}")
 
     with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        # We cast to dict[str, Any] because safe_load can return list, str, etc.
+        data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            raise TypeError(f"Config file {CONFIG_FILE} must be a dictionary.")
+        return data
 
 
 def _decode_url(encoded: str) -> str:
@@ -52,23 +56,23 @@ class Config:
 
     @property
     def emu_releases_api_url(self) -> str:
-        return _decode_url(self._data["sources"]["emu_releases_api"])
+        return _decode_url(str(self._data["sources"]["emu_releases_api"]))
 
     @property
     def emu_asset_identifier(self) -> str:
-        return _decode_url(self._data["sources"]["emu_asset_id"])
+        return _decode_url(str(self._data["sources"]["emu_asset_id"]))
 
     @property
     def licenses_url(self) -> str:
-        return _decode_url(self._data["sources"]["licenses"])
+        return _decode_url(str(self._data["sources"]["licenses"]))
 
     @property
     def system_url(self) -> str:
-        return _decode_url(self._data["sources"]["system"])
+        return _decode_url(str(self._data["sources"]["system"]))
 
     @property
     def referer_url(self) -> str:
-        return _decode_url(self._data["sources"]["referer"])
+        return _decode_url(str(self._data["sources"]["referer"]))
 
     @property
     def backup_count(self) -> int:
@@ -96,11 +100,11 @@ class Config:
 
     @property
     def default_provider(self) -> str:
-        return self._data["providers"]["default"]
+        return str(self._data["providers"]["default"])
 
     @property
     def google_drive_folder(self) -> str:
-        return self._data["providers"]["google_drive_folder"]
+        return str(self._data["providers"]["google_drive_folder"])
 
     @property
     def telegram_enabled(self) -> bool:

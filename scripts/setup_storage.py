@@ -1,4 +1,3 @@
-# pyre-ignore-all-errors[21]
 import requests
 import webbrowser
 import os
@@ -7,7 +6,7 @@ import sys
 # Asegurar que el directorio raíz está en el path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.utils.health_checks import test_dropbox_connection, test_google_drive_connection # type: ignore
+from src.utils.health_checks import test_dropbox_connection, test_google_drive_connection
 
 def get_backup_count_input() -> int:
     """Solicita al usuario la cantidad de versiones a mantener."""
@@ -23,8 +22,7 @@ def get_backup_count_input() -> int:
         print("⚠️ Valor no válido. Se usará el predeterminado (2).")
         return 2
 
-
-def main():
+def main() -> None:
     print("=" * 60)
     print("Bienvenido al Asistente de Configuración de Almacenamiento")
     print("=" * 60)
@@ -44,7 +42,7 @@ def main():
         input("\nPresiona ENTER para cerrar esta ventana...")
         return
 
-def setup_dropbox():
+def setup_dropbox() -> None:
     print("\n" + "=" * 60)
     print("CONFIGURACIÓN DE DROPBOX")
     print("=" * 60)
@@ -158,7 +156,7 @@ def setup_dropbox():
     
     input("\nPresiona ENTER para cerrar esta ventana...")
 
-def setup_google_drive():
+def setup_google_drive() -> None:
     print("\n" + "=" * 60)
     print("CONFIGURACIÓN DE GOOGLE DRIVE")
     print("=" * 60)
@@ -239,8 +237,8 @@ def setup_google_drive():
     print("-" * 60)
     
     try:
-        from google.oauth2.credentials import Credentials  # type: ignore
-        from google_auth_oauthlib.flow import InstalledAppFlow  # type: ignore
+        from google.oauth2.credentials import Credentials
+        from google_auth_oauthlib.flow import InstalledAppFlow
     except ImportError:
         print("Error: Faltan dependencias para Google Drive.")
         print("Por favor, instala los paquetes necesarios ejecutando:")
@@ -273,7 +271,7 @@ def setup_google_drive():
         
     print(f"\nResolviendo u obteniendo ID para la carpeta: '{folder_name}'...")
     try:
-        from googleapiclient.discovery import build # type: ignore
+        from googleapiclient.discovery import build
         service = build('drive', 'v3', credentials=credentials)
         
         query = f"name='{folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"

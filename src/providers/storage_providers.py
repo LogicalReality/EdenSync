@@ -6,17 +6,17 @@ Proporciona una abstracción para soportar múltiples servicios de nube (Dropbox
 from __future__ import annotations
 import os
 from abc import ABC, abstractmethod
-from typing import Any, Set, cast
-import dropbox # type: ignore
-from dropbox.exceptions import ApiError # type: ignore
-from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo # type: ignore
-import requests # type: ignore
+from typing import Any, cast
+import dropbox
+from dropbox.exceptions import ApiError
+from dropbox.files import WriteMode, UploadSessionCursor, CommitInfo
+import requests
 from concurrent.futures import ThreadPoolExecutor
-from rich.progress import Progress # type: ignore
-from src.utils.helpers import logger, create_shared_progress, retry_with_backoff # type: ignore
+from rich.progress import Progress
+from src.utils.helpers import logger, create_shared_progress, retry_with_backoff
 
 # Tamaño de chunk (fijado a 16MB para mayor estabilidad en conexiones variables)
-CHUNK_SIZE = 16 * 1024 * 1024
+CHUNK_SIZE: int = 16 * 1024 * 1024
 
 # ==========================================
 # INTERFAZ ABSTRACTA DE PROVEEDOR
@@ -64,7 +64,7 @@ class StorageProvider(ABC):
 class DropboxProvider(StorageProvider):
     """Implementación de StorageProvider para Dropbox."""
     
-    def __init__(self):
+    def __init__(self) -> None:
         self.dbx: dropbox.Dropbox | None = None
     
     def connect(self) -> bool:
@@ -83,10 +83,12 @@ class DropboxProvider(StorageProvider):
                 app_secret=app_secret,
                 oauth2_refresh_token=refresh_token
             )
+            # Verificar conexión
+            self.dbx.users_get_current_account()
             logger.info(f"{self._log_prefix()} Cliente inicializado correctamente.")
             return True
         except Exception:
-            logger.exception("Error al inicializar el cliente de Dropbox:")
+            logger.exception("Error al conectar a Dropbox:")
             return False
     
     @retry_with_backoff()
@@ -120,15 +122,13 @@ class DropboxProvider(StorageProvider):
             
             task_id = None
             if progress is not None:
-                task_id = progress.add_task(description="Upload", filename=remote_name, total=file_size)
+                task_id = progress.add_task(description="Upload", filename=remote_name, total=float(file_size))
                 
             with open(local_path, 'rb') as f:
                 if file_size <= CHUNK_SIZE:
                     self.dbx.files_upload(f.read(), f'/{remote_name}', mode=WriteMode.overwrite)
                     if progress is not None and task_id is not None:
-                        # Usar cast para el linter
-                        p = cast(Progress, progress)
-                        p.update(task_id, advance=file_size)
+                        progress.update(task_id, advance=float(file_size))
                 else:
                     # Upload session para archivos grandes
                     chunk = f.read(CHUNK_SIZE)
@@ -140,34 +140,28 @@ class DropboxProvider(StorageProvider):
                     commit = CommitInfo(path=f'/{remote_name}', mode=WriteMode.overwrite)
                     
                     if progress is not None and task_id is not None:
-                        p = cast(Progress, progress)
-                        p.update(task_id, advance=len(chunk))
+                        progress.update(task_id, advance=float(len(chunk)))
                     
                     # Subir chunks restantes
                     while True:
                         remaining = file_size - cursor.offset
                         if remaining <= CHUNK_SIZE:
-                            chunk = f.read(remaining)
-                            self.dbx.files_upload_session_finish(chunk, cursor, commit)
+                            final_chunk = f.read(remaining)
+                            self.dbx.files_upload_session_finish(final_chunk, cursor, commit)
                             if progress is not None and task_id is not None:
-                                p = cast(Progress, progress)
-                                p.update(task_id, advance=len(chunk))
+                                progress.update(task_id, advance=float(len(final_chunk)))
                             break
                         else:
-                            chunk = f.read(CHUNK_SIZE)
-                            self.dbx.files_upload_session_append_v2(chunk, cursor)
-                            cursor.offset += len(chunk)
+                            next_chunk = f.read(CHUNK_SIZE)
+                            self.dbx.files_upload_session_append_v2(next_chunk, cursor)
+                            cursor.offset += len(next_chunk)
                             if progress is not None and task_id is not None:
-                                p = cast(Progress, progress)
-                                p.update(task_id, advance=len(chunk))
+                                progress.update(task_id, advance=float(len(next_chunk)))
             
             logger.info(f"{self._log_prefix()} Archivo subido correctamente.")
             return True
-        except ApiError:
-            logger.exception("Error en la API de Dropbox:")
-            return False
         except Exception:
-            logger.exception("Error inesperado al subir:")
+            logger.exception("Error al subir a Dropbox:")
             return False
         finally:
             # Limpiar archivo local
@@ -176,7 +170,6 @@ class DropboxProvider(StorageProvider):
                     os.remove(local_path)
                 except OSError:
                     pass
-        return False
     
     @retry_with_backoff()
     def delete_file(self, file_name: str) -> bool:
@@ -213,10 +206,7 @@ class DropboxProvider(StorageProvider):
 class GoogleDriveProvider(StorageProvider):
     """Implementación de StorageProvider para Google Drive."""
     
-    # Scopes necesarios para Google Drive API
-    SCOPES = ['https://www.googleapis.com/auth/drive.file']
-    
-    def __init__(self):
+    def __init__(self) -> None:
         self.service: Any = None
         self.credentials: Any = None
         self.folder_id: str = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
@@ -238,8 +228,8 @@ class GoogleDriveProvider(StorageProvider):
             return False
         
         try:
-            from google.oauth2.credentials import Credentials  # pyre-ignore[21]
-            from googleapiclient.discovery import build  # pyre-ignore[21]
+            from google.oauth2.credentials import Credentials
+            from googleapiclient.discovery import build
             
             self.credentials = Credentials(
                 token=None,
@@ -250,102 +240,75 @@ class GoogleDriveProvider(StorageProvider):
             )
             
             self.service = build('drive', 'v3', credentials=self.credentials)
+            # Verificar conexión
+            self.service.about().get(fields="user").execute()
             logger.info(f"{self._log_prefix()} Cliente inicializado correctamente.")
             
-            # Resolver folder_id si se especificó folder_name pero no folder_id directamente
+            # Resolver folder_id si es necesario
             if self.folder_name and self.folder_id == "root":
                 self._resolve_folder_id()
                 
             return True
-        except ImportError:
-            logger.error("Error: No se encontró la librería google-api-python-client. Instálala con: pip install google-api-python-client google-auth-httplib2")
-            return False
         except Exception:
-            logger.exception("Error al inicializar el cliente de Google Drive:")
+            logger.exception("Error al conectar a Google Drive:")
             return False
             
     def _resolve_folder_id(self) -> None:
-        """Busca la carpeta por nombre o la crea si no existe, actualizando self.folder_id"""
+        """Busca la carpeta por nombre o la crea si no existe."""
         if not self.service or not self.folder_name:
             return
             
         try:
-            # Buscar carpeta existente
             query = f"name='{self.folder_name}' and mimeType='application/vnd.google-apps.folder' and trashed=false"
-            results = self.service.files().list(
-                q=query,
-                pageSize=1,
-                fields="files(id, name)"
-            ).execute()
-            
+            results = self.service.files().list(q=query, pageSize=1, fields="files(id, name)").execute()
             files = results.get('files', [])
             
             if files:
-                self.folder_id = files[0]['id']
-                logger.info(f"{self._log_prefix()} Carpeta existente encontrada: '{self.folder_name}' (ID: {self.folder_id})")
+                self.folder_id = cast(str, files[0]['id'])
+                logger.info(f"{self._log_prefix()} Carpeta encontrada: '{self.folder_name}' (ID: {self.folder_id})")
             else:
-                # Crear la carpeta
-                logger.info(f"{self._log_prefix()} Creando nueva carpeta: '{self.folder_name}'")
-                file_metadata = {
-                    'name': self.folder_name,
-                    'mimeType': 'application/vnd.google-apps.folder'
-                }
-                folder = self.service.files().create(
-                    body=file_metadata,
-                    fields='id'
-                ).execute()
-                
-                self.folder_id = folder.get('id')
+                logger.info(f"{self._log_prefix()} Creando carpeta: '{self.folder_name}'")
+                file_metadata = {'name': self.folder_name, 'mimeType': 'application/vnd.google-apps.folder'}
+                folder = self.service.files().create(body=file_metadata, fields='id').execute()
+                self.folder_id = cast(str, folder.get('id'))
                 logger.info(f"{self._log_prefix()} Carpeta creada (ID: {self.folder_id})")
-                
         except Exception:
-            logger.exception(f"Error al resolver o crear la carpeta '{self.folder_name}':")
-            # Fallback a root si falla
+            logger.exception(f"Error al resolver carpeta '{self.folder_name}':")
             self.folder_id = "root"
     
     @retry_with_backoff()
     def list_files(self) -> set[str]:
-        """Lista archivos en Google Drive (raíz)."""
+        """Lista archivos en la carpeta de Google Drive."""
         if not self.service:
-            logger.error("Cliente de Google Drive no inicializado.")
             return set()
         
         try:
             query = f"'{self.folder_id}' in parents and trashed=false"
-            results = self.service.files().list(
-                q=query,
-                pageSize=100,
-                fields="files(name)"
-            ).execute()
-            
-            files = {item['name'] for item in results.get('files', [])}
-            return files
+            results = self.service.files().list(q=query, pageSize=1000, fields="files(name)").execute()
+            items = results.get('files', [])
+            return {str(item['name']) for item in items}
         except Exception:
             logger.exception("Error al listar archivos en Google Drive:")
             return set()
     
     @retry_with_backoff()
     def upload_file(self, local_path: str, remote_name: str, progress: Progress | None = None) -> bool:
-        """Sube un archivo a Google Drive."""
+        """Sube un archivo a Google Drive usando carga resumible."""
         if not self.service:
-            logger.error(f"{self._log_prefix()} Cliente de Google Drive no inicializado.")
             return False
         
         logger.info(f"{self._log_prefix()} Subiendo: {remote_name}...")
         try:
-            from google.auth.transport.requests import Request  # pyre-ignore[21]
-            
-            # Asegurar token fresco
+            from google.auth.transport.requests import Request
             self.credentials.refresh(Request())
             access_token = self.credentials.token
             
             file_size = os.path.getsize(local_path)
-            
             task_id = None
             if progress is not None:
-                task_id = progress.add_task(description="Upload", filename=remote_name, total=file_size)
+                task_id = progress.add_task(description="Upload", filename=remote_name, total=float(file_size))
             
-            # 1. Iniciar sesión de carga resumible
+            # Iniciar sesión de carga resumible
             init_url = "https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable"
             headers = {
                 "Authorization": f"Bearer {access_token}",
@@ -353,107 +316,65 @@ class GoogleDriveProvider(StorageProvider):
                 "X-Upload-Content-Type": "application/octet-stream",
                 "X-Upload-Content-Length": str(file_size)
             }
-            metadata = {
-                "name": remote_name,
-                "parents": [self.folder_id]
-            }
+            metadata = {"name": remote_name, "parents": [self.folder_id]}
             
             response = self.session.post(init_url, headers=headers, json=metadata, timeout=30)
             response.raise_for_status()
             upload_url = response.headers.get("Location")
             
             if not upload_url:
-                logger.error("No se pudo obtener la URL de carga de Google Drive.")
                 return False
                 
-            # 2. Subir en chunks
             with open(local_path, "rb") as f:
                 offset = 0
                 while offset < file_size:
-                    chunk = f.read(CHUNK_SIZE)
-                    if not chunk:
-                        break
+                    chunk_data = f.read(CHUNK_SIZE)
+                    if not chunk_data: break
                     
-                    chunk_len = len(chunk)
+                    chunk_len = len(chunk_data)
                     headers = {
                         "Authorization": f"Bearer {access_token}",
                         "Content-Range": f"bytes {offset}-{offset + chunk_len - 1}/{file_size}",
                         "Content-Length": str(chunk_len)
                     }
                     
-                    # PUT del chunk
-                    chunk_response = self.session.put(upload_url, headers=headers, data=chunk, timeout=300)
-                    
+                    self.session.put(upload_url, headers=headers, data=chunk_data, timeout=300).raise_for_status()
+                    offset += chunk_len
                     if progress is not None and task_id is not None:
-                        p = cast(Progress, progress)
-                        p.update(task_id, advance=chunk_len)
-                    
-                    if chunk_response.status_code in [200, 201]:
-                        # Carga finalizada con éxito
-                        break
-                    elif chunk_response.status_code == 308:
-                        # Carga parcial, siguiente chunk
-                        offset += chunk_len
-                    else:
-                        chunk_response.raise_for_status()
+                        progress.update(task_id, advance=float(chunk_len))
             
             logger.info(f"{self._log_prefix()} Archivo subido correctamente.")
-            
-            # Limpiar archivo local
-            try:
-                os.remove(local_path)
-            except OSError:
-                pass
-                
             return True
-            
         except Exception:
-            logger.exception("Error al subir archivo con el motor Requests:")
-            # Limpiar archivo local también en caso de error
-            try:
-                if os.path.exists(local_path):
-                    os.remove(local_path)
-            except OSError:
-                pass
+            logger.exception("Error al subir a Google Drive:")
             return False
+        finally:
+            if os.path.exists(local_path):
+                try: os.remove(local_path)
+                except OSError: pass
     
     @retry_with_backoff()
     def delete_file(self, file_name: str) -> bool:
         """Elimina un archivo de Google Drive."""
         if not self.service:
-            logger.error(f"{self._log_prefix()} Cliente de Google Drive no inicializado.")
             return False
         
-        logger.info(f"{self._log_prefix()} Eliminando: {file_name}...")
         try:
-            # Buscar el archivo por nombre dentro de la carpeta configurada
             query = f"name='{file_name}' and '{self.folder_id}' in parents and trashed=false"
-            results = self.service.files().list(
-                q=query,
-                pageSize=10,
-                fields="files(id, name)"
-            ).execute()
-            
+            results = self.service.files().list(q=query, pageSize=1, fields="files(id)").execute()
             files = results.get('files', [])
-            if not files:
-                logger.warning(f"[GOOGLE DRIVE] Archivo no encontrado: {file_name}")
-                return False
+            if not files: return False
             
-            # Eliminar el primer archivo encontrado
-            file_id = files[0]['id']
-            self.service.files().delete(fileId=file_id).execute()
-            
+            self.service.files().delete(fileId=files[0]['id']).execute()
             logger.info(f"{self._log_prefix()} Archivo eliminado: {file_name}")
             return True
         except Exception:
-            logger.exception("Error al eliminar archivo de Google Drive:")
+            logger.exception("Error al eliminar en Google Drive:")
             return False
     
     def upload_files(self, file_paths: list[str]) -> bool:
         """Sube archivos en paralelo a Google Drive."""
-        if not file_paths:
-            return True
-        logger.info(f"{self._log_prefix()} Iniciando subida paralela de {len(file_paths)} archivos...")
+        if not file_paths: return True
         with create_shared_progress() as progress:
             with ThreadPoolExecutor(max_workers=4) as executor:
                 results = list(executor.map(lambda p: self.upload_file(p, os.path.basename(p), progress), file_paths))
@@ -467,41 +388,7 @@ class GoogleDriveProvider(StorageProvider):
 # FÁBRICA DE PROVEEDORES
 # ==========================================
 def get_storage_provider() -> StorageProvider | None:
-    """
-    Retorna el proveedor de almacenamiento configurado mediante la variable de entorno STORAGE_PROVIDER.
-    
-    Valores posibles:
-    - "dropbox" -> DropboxProvider
-    - "googledrive" -> GoogleDriveProvider
-    
-    Por defecto retorna DropboxProvider si no se especifica.
-    """
+    """Retorna el proveedor de almacenamiento configurado."""
     provider = os.environ.get("STORAGE_PROVIDER", "dropbox").lower()
-    
-    if provider == "googledrive":
-        return GoogleDriveProvider()
-    elif provider == "dropbox":
-        return DropboxProvider()
-    else:
-        logger.warning(f"Proveedor desconocido '{provider}'. Usando Dropbox por defecto.")
-        return DropboxProvider()
-
-
-# ==========================================
-# COMPATIBILIDAD CON main.py (DEPRECATED)
-# ==========================================
-# Funciones de compatibilidad para mantener compatibilidad con código existente
-def get_dropbox_client():
-    """Función de compatibilidad para main.py. Usa el nuevo sistema de abstracción."""
-    provider = DropboxProvider()
-    if provider.connect():
-        return provider.dbx
-    return None
-
-
-def get_google_drive_client():
-    """Función de compatibilidad para obtener cliente de Google Drive."""
-    provider = GoogleDriveProvider()
-    if provider.connect():
-        return provider.service
-    return None
+    if provider == "googledrive": return GoogleDriveProvider()
+    return DropboxProvider()

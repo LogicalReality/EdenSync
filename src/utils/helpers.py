@@ -5,6 +5,8 @@ import logging
 import hashlib
 import logging.handlers
 import re
+from contextlib import contextmanager
+from typing import Any, Callable, TypeVar, ParamSpec, Generator
 from rich.progress import (
     Progress,
     TextColumn,
@@ -12,12 +14,17 @@ from rich.progress import (
     DownloadColumn,
     TransferSpeedColumn,
     TimeRemainingColumn,
-)  # type: ignore
+)
+from src.config import config
+
+T = TypeVar("T")
+P = ParamSpec("P")
 
 
-def create_shared_progress() -> Progress:
-    """Crea una barra de progreso estilo pip para usar con administradores de contexto."""
-    return Progress(
+@contextmanager
+def create_shared_progress() -> Generator[Progress, None, None]:
+    """Crea una barra de progreso compartida para múltiples hilos."""
+    progress = Progress(
         TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
         BarColumn(bar_width=None),
         "[progress.percentage]{task.percentage:>3.1f}%",
@@ -27,26 +34,21 @@ def create_shared_progress() -> Progress:
         TransferSpeedColumn(),
         "•",
         TimeRemainingColumn(),
-        transient=True,
     )
-
-
-# ==========================================
-# CONSTANTES GLOBALES
-# ==========================================
-from src.config import config # type: ignore
+    with progress:
+        yield progress
 
 VERSION_REGEX = re.compile(r"(\d+\.\d+[\d.]*)\.zip", re.IGNORECASE)
 TAG_REGEX = re.compile(r"v\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z0-9]+)?")
 
-MAX_RETRIES = config.max_retries
-RETRY_DELAY = config.retry_delay
-BACKUP_CONFIG = {
+MAX_RETRIES: int = config.max_retries
+RETRY_DELAY: int = config.retry_delay
+BACKUP_CONFIG: dict[str, int] = {
     "emu": config.backup_count,
     "licenses": config.backup_count,
     "system": config.backup_count,
 }
-EMU_ASSET_IDENTIFIER = config.emu_asset_identifier
+EMU_ASSET_IDENTIFIER: str = config.emu_asset_identifier
 
 
 # ==========================================
@@ -126,7 +128,7 @@ def setup_logger(name: str = "pesync", log_file: str | None = None) -> logging.L
 
 
 # Inicializar logger global para uso en utilidades
-logger = setup_logger()
+logger: logging.Logger = setup_logger()
 
 
 # ==========================================
@@ -158,7 +160,7 @@ def is_system_file(f: str) -> bool:
     return f_low.endswith(".zip") and ("firmware" in f_low or "v19" in f_low)
 
 
-def wait_for_exit(timeout: int = 15):
+def wait_for_exit(timeout: int = 15) -> None:
     """
     Espera a que el usuario presione Enter para salir.
     Si se presiona cualquier otra tecla durante el timeout, se cancela el cierre automático
@@ -237,10 +239,10 @@ import random
 
 def retry_with_backoff(
     max_retries: int = MAX_RETRIES,
-    initial_delay: int = RETRY_DELAY,
+    initial_delay: float = float(RETRY_DELAY),
     backoff_factor: float = 2.0,
-    exceptions: tuple = (Exception,),
-):
+    exceptions: tuple[type[Exception], ...] = (Exception,),
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
     """
     Decorador para reintentar una función con backoff exponencial.
     
@@ -251,11 +253,11 @@ def retry_with_backoff(
         exceptions: Tupla de excepciones que disparan un reintento.
     """
 
-    def decorator(func):
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
         @wraps(func)
-        def wrapper(*args, **kwargs):
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
             delay = initial_delay
-            last_exception = None
+            last_exception: Exception | None = None
 
             # El primer intento es el intento 0, luego reintentos del 1 al max_retries
             for attempt in range(max_retries + 1):
@@ -282,6 +284,7 @@ def retry_with_backoff(
             # Si llegamos aquí, es que fallaron todos los intentos
             if last_exception:
                 raise last_exception
+            raise Exception("Unreachable") # Para satisfacer a mypy
 
         return wrapper
 

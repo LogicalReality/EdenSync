@@ -1,28 +1,28 @@
 from __future__ import annotations
 import os
-import requests  # type: ignore
+import requests
 import time
 from typing import Any, cast
-from bs4 import BeautifulSoup  # type: ignore
-from rich.progress import Progress  # type: ignore
+from bs4 import BeautifulSoup
+from rich.progress import Progress
 
 # Importar herramientas locales
 from src.utils.helpers import (
     logger,
-    MAX_RETRIES,
-    RETRY_DELAY,
-    retry_with_backoff,
     calculate_sha256,
-) # type: ignore
-from src.config import config # type: ignore
+    retry_with_backoff,
+)
+from src.config import config
 
 
 def is_valid_link(link: str) -> bool:
+    """Verifica si un link es una descarga válida de PESync."""
     return link.startswith("https://") and link.endswith(".zip")
 
 
 @retry_with_backoff()
 def get_emu_releases(n: int = 2) -> list[dict[str, Any]]:
+    """Obtiene las últimas N versiones de Emu desde la API de GitHub."""
     try:
         response = requests.get(
             config.emu_releases_api_url,
@@ -31,11 +31,14 @@ def get_emu_releases(n: int = 2) -> list[dict[str, Any]]:
         )
         response.raise_for_status()
         data = response.json()
+        if not isinstance(data, list):
+            logger.warning("Respuesta de API inesperada (no es una lista).")
+            return []
         if not data:
             logger.warning("No se encontraron versiones.")
             return []
-        # Usar cast para evitar que Pyre se confunda con el slice
-        return cast(list[Any], data[:n])
+        
+        return cast(list[dict[str, Any]], data[:n])
     except Exception:
         logger.exception("Error al obtener las versiones:")
         return []
@@ -43,6 +46,7 @@ def get_emu_releases(n: int = 2) -> list[dict[str, Any]]:
 
 @retry_with_backoff()
 def get_latest_links(url: str, limit: int = 2) -> list[str]:
+    """Scrapea una URL en busca de archivos .zip y retorna los últimos N."""
     response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=15)
     response.raise_for_status()
     html = response.text
@@ -61,7 +65,7 @@ def get_latest_links(url: str, limit: int = 2) -> list[str]:
         return []
 
     unique_links: list[str] = list(dict.fromkeys(links))
-    return cast(list[str], unique_links[:limit])
+    return unique_links[:limit]
 
 
 @retry_with_backoff()
@@ -78,14 +82,14 @@ def download_asset(url: str, file_name: str, progress: Progress | None = None) -
         task_id = None
         if progress:
             task_id = progress.add_task(
-                "download", filename=os.path.basename(file_name), total=total_size
+                "download", filename=os.path.basename(file_name), total=float(total_size)
             )
 
         with open(file_name, "wb") as f:
-            for data in response.iter_content(chunk_size=1024 * 1024):
-                f.write(data)
+            for chunk in response.iter_content(chunk_size=1024 * 1024):
+                f.write(chunk)
                 if progress and task_id:
-                    progress.update(task_id, advance=len(data))
+                    progress.update(task_id, advance=float(len(chunk)))
         
         # Calcular y retornar el hash del archivo descargado
         file_hash = calculate_sha256(file_name)

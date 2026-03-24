@@ -1,25 +1,23 @@
-"""PESync - Herramienta de sincronización y respaldo para Pro Evolution Soccer."""
-
 from __future__ import annotations
 import os
 import time
 import shutil
 import tempfile
-from typing import Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from dotenv import load_dotenv  # type: ignore
+from typing import Any, cast
+from concurrent.futures import ThreadPoolExecutor, as_completed, Future
+from dotenv import load_dotenv
 import re
 
 # Importar proveedores de almacenamiento
-from src.providers.storage_providers import (  # type: ignore
+from src.providers.storage_providers import (
     get_storage_provider,
     StorageProvider,
 )
 
-from src.utils.notifications import TelegramNotifier  # type: ignore
+from src.utils.notifications import TelegramNotifier
 
 # Importar utilidades y red
-from src.utils.helpers import (  # type: ignore
+from src.utils.helpers import (
     logger,
     BACKUP_CONFIG,
     EMU_ASSET_IDENTIFIER,
@@ -31,12 +29,13 @@ from src.utils.helpers import (  # type: ignore
     create_shared_progress,
     calculate_sha256,
 )
-from src.network.http_utils import (  # type: ignore
+from src.network.http_utils import (
     get_emu_releases,
     get_latest_links,
     download_asset,
 )
-from src.config import config # type: ignore
+from src.config import config
+from rich.progress import Progress
 
 # ==========================================
 # CONFIGURACIÓN INICIAL
@@ -67,7 +66,7 @@ def sync_to_storage(
 
     # 1. Descargar en paralelo y subir en lote
     if all_items_to_download:
-        temp_dir = tempfile.mkdtemp(prefix="pesync_bulk_")
+        temp_dir: str = tempfile.mkdtemp(prefix="pesync_bulk_")
         downloaded_paths: list[str] = []
 
         try:
@@ -75,7 +74,7 @@ def sync_to_storage(
                 f"[SYNC] Descargando {len(all_items_to_download)} archivos en paralelo..."
             )
 
-            def _download(item: tuple[str, str, str], progress_bar: Any) -> str | None:
+            def _download(item: tuple[str, str, str], progress_bar: Progress | None) -> str | None:
                 download_url, file_name, category = item
                 local_path = os.path.join(temp_dir, file_name)
                 logger.info(f"[{category}] Descargando: {file_name}")
@@ -91,7 +90,7 @@ def sync_to_storage(
 
             with create_shared_progress() as progress:
                 with ThreadPoolExecutor(max_workers=4) as executor:
-                    futures = {
+                    futures: dict[Future[str | None], tuple[str, str, str]] = {
                         executor.submit(_download, item, progress): item
                         for item in all_items_to_download
                     }
@@ -106,7 +105,7 @@ def sync_to_storage(
 
             if downloaded_paths:
                 # Incluir los archivos .sha256 en la lista de archivos a subir
-                paths_to_upload = []
+                paths_to_upload: list[str] = []
                 for p in downloaded_paths:
                     paths_to_upload.append(p)
                     hash_p = f"{p}.sha256"
@@ -145,10 +144,10 @@ def collect_emu_pending(
 ) -> tuple[list[tuple[str, str, str]], list[str]]:
     """Determina qué versiones del Emu faltan y cuáles son obsoletas. No descarga nada."""
     logger.info("[EMU] Verificando versiones...")
-    releases: list[dict[str, Any]] = get_emu_releases(n=BACKUP_CONFIG.get("emu", 2))
+    releases: list[dict[str, Any]] = get_emu_releases(n=int(BACKUP_CONFIG.get("emu", 2)))
 
-    all_core_tags = [str(r.get("tag_name", "unknown")) for r in releases]
-    core_in_backup_tags = [
+    all_core_tags: list[str] = [str(r.get("tag_name", "unknown")) for r in releases]
+    core_in_backup_tags: list[str] = [
         tag
         for tag in all_core_tags
         if any(tag in f and EMU_ASSET_IDENTIFIER in f for f in backed_up)
@@ -182,14 +181,14 @@ def collect_emu_pending(
         else:
             logger.error(f"[EMU] No se encontró el asset para {release_tag}")
 
-    desired_emu_files = {
-        asset.get("name", "")
+    desired_emu_files: set[str] = {
+        str(asset.get("name", ""))
         for release in releases
         for asset in release.get("assets", [])
-        if EMU_ASSET_IDENTIFIER in asset.get("name", "")
-        and not asset.get("name", "").endswith(".zsync")
+        if EMU_ASSET_IDENTIFIER in str(asset.get("name", ""))
+        and not str(asset.get("name", "")).endswith(".zsync")
     }
-    files_to_delete = [
+    files_to_delete: list[str] = [
         f for f in backed_up if EMU_ASSET_IDENTIFIER in f and f not in desired_emu_files
     ]
 
@@ -207,7 +206,7 @@ def collect_generic_pending(
     """Determina qué archivos genéricos (firmware/sistema) faltan. No descarga nada."""
     logger.info(f"[{category_name}] Verificando archivos...")
     links: list[str] = (
-        get_latest_links(url, limit=BACKUP_CONFIG.get(config_key, 2)) or []
+        get_latest_links(url, limit=int(BACKUP_CONFIG.get(config_key, 2))) or []
     )
 
     if not links:
@@ -216,21 +215,21 @@ def collect_generic_pending(
         )
         return [], []
 
-    remote_norm = {normalize_filename(link.split("/")[-1]): link for link in links}
-    local_norm = {
+    remote_norm: dict[str, str] = {normalize_filename(link.split("/")[-1]): link for link in links}
+    local_norm: dict[str, str] = {
         normalize_filename(f): f
         for f in backed_up
         if file_pattern in f.lower()
         and (not exclude_pattern or exclude_pattern not in f.lower())
     }
 
-    remote_keys = set(remote_norm.keys())
-    local_keys = set(local_norm.keys())
+    remote_keys: set[str] = set(remote_norm.keys())
+    local_keys: set[str] = set(local_norm.keys())
 
-    in_backup_norm = remote_keys & local_keys
-    missing_norm = remote_keys - local_keys
+    in_backup_norm: set[str] = remote_keys & local_keys
+    missing_norm: set[str] = remote_keys - local_keys
 
-    display = [
+    display: list[str] = [
         re.sub(
             r"(?i)\.zip$",
             "",
@@ -246,7 +245,7 @@ def collect_generic_pending(
         (remote_norm[nl], remote_norm[nl].split("/")[-1], category_name)
         for nl in missing_norm
     ]
-    files_to_delete = [
+    files_to_delete: list[str] = [
         raw_f for nl, raw_f in local_norm.items() if nl not in remote_keys
     ]
 
@@ -258,25 +257,25 @@ def collect_generic_pending(
 # ==========================================
 
 
-def display_backup_summary(backed_up: set[str]):
+def display_backup_summary(backed_up: set[str]) -> None:
     """Imprime un resumen formateado del estado actual del backup."""
     logger.info("=" * 40)
     logger.info("ESTADO ACTUAL DEL BACKUP".center(40))
     logger.info("=" * 40)
 
-    final_emu = sorted(f for f in backed_up if EMU_ASSET_IDENTIFIER in f)
-    emu_tags = [t for f in final_emu for t in TAG_REGEX.findall(f)]
+    final_emu: list[str] = sorted(f for f in backed_up if EMU_ASSET_IDENTIFIER in f)
+    emu_tags: list[str] = [t for f in final_emu for t in TAG_REGEX.findall(f)]
     logger.info(f"  Emu        : {emu_tags if emu_tags else 'ninguno'}")
 
-    final_keys = {normalize_filename(f) for f in backed_up if is_license_file(f)}
-    keys_display = [
+    final_keys: set[str] = {normalize_filename(f) for f in backed_up if is_license_file(f)}
+    keys_display: list[str] = [
         re.sub(r"(?i)\.zip$", "", (VERSION_REGEX.findall(f) or [f])[0])
         for f in sorted(final_keys)
     ]
     logger.info(f"  Licencias  : {keys_display if keys_display else 'ninguna'}")
 
-    final_sys = {normalize_filename(f) for f in backed_up if is_system_file(f)}
-    sys_display = [
+    final_sys: set[str] = {normalize_filename(f) for f in backed_up if is_system_file(f)}
+    sys_display: list[str] = [
         re.sub(r"(?i)\.zip$", "", (VERSION_REGEX.findall(f) or [f])[0])
         for f in sorted(final_sys)
     ]
@@ -284,7 +283,8 @@ def display_backup_summary(backed_up: set[str]):
     logger.info("=" * 40)
 
 
-def main():
+def main() -> None:
+    """Función principal de ejecución del backup."""
     notifier = TelegramNotifier()
 
     try:
@@ -329,7 +329,7 @@ def main():
         all_items.extend(emu_items)
         all_deletes.extend(emu_delete)
 
-        generic_tasks = [
+        generic_tasks: list[tuple[str, str, str, str, str | None]] = [
             (config.licenses_url, "licenses", "LICENCIAS", ".zip", "firmware"),
             (config.system_url, "system", "SISTEMA", "firmware", None),
         ]
