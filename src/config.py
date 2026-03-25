@@ -110,5 +110,13 @@ class Config:
     def telegram_enabled(self) -> bool:
         return bool(self._data.get("notifications", {}).get("telegram_enabled", False))
 
+    @property
+    def upload_checksums(self) -> bool:
+        """Determines if .sha256 files should be uploaded to the cloud."""
+        env_val = os.environ.get("UPLOAD_CHECKSUMS")
+        if env_val is not None:
+            return env_val.lower() == "true"
+        return bool(self._data.get("sync", {}).get("upload_checksums", False))
+
 
 config = Config()

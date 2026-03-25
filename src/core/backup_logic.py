@@ -108,9 +108,10 @@ def sync_to_storage(
                 paths_to_upload: list[str] = []
                 for p in downloaded_paths:
                     paths_to_upload.append(p)
-                    hash_p = f"{p}.sha256"
-                    if os.path.exists(hash_p):
-                        paths_to_upload.append(hash_p)
+                    if config.upload_checksums:
+                        hash_p = f"{p}.sha256"
+                        if os.path.exists(hash_p):
+                            paths_to_upload.append(hash_p)
                 
                 if provider.upload_files(paths_to_upload):
                     for p in downloaded_paths:

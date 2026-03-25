@@ -10,7 +10,6 @@ Este documento registra el progreso y el plan de mejoras del proyecto. Como Seni
 - [x] **Dropbox** (Implementado: `src/providers/storage_providers.py`)
 - [x] **Google Drive** (Implementado: `src/providers/storage_providers.py`)
 - [ ] **OneDrive** - *Alta Prioridad:* Es el estándar en Windows.
-- [ ] **Soporte genérico S3 (Cloudflare R2, Backblaze)** - *Recomendación Senior:* Más flexible que proveedores individuales.
 
 ---
 
@@ -19,7 +18,7 @@ Este documento registra el progreso y el plan de mejoras del proyecto. Como Seni
 
 - [x] **Reintentos Automáticos (Exponential Backoff)** (Implementado en `helpers.py`)
 - [x] **Verificación de Integridad (SHA256)** (Implementado: Generación de archivos `.sha256`)
-- [ ] **Modo Offline** - *Baja Prioridad:* El script debería simplemente terminar con un error elegante si no hay red.
+- [ ] **Offline** - *Baja Prioridad:* El script debería simplemente terminar con un error elegante si no hay red.
 
 ---
 
@@ -45,7 +44,6 @@ Este documento registra el progreso y el plan de mejoras del proyecto. Como Seni
 
 - [x] **Variables de Entorno (.env)** (Implementado)
 - [x] **Configuración YAML** (Implementado en `config.yaml`)
-- [ ] **Intervalo de Polling Inteligente** - *Alta Prioridad:* No pollear si no hay cambios detectados (ETags/Last-Modified).
 - [ ] **Perfiles de Sincronización** - *Media Prioridad:* Configurar qué categorías se respaldan y con qué frecuencia.
 
 ---
@@ -54,7 +52,7 @@ Este documento registra el progreso y el plan de mejoras del proyecto. Como Seni
 *El "Core" de un proyecto profesional.*
 
 - [x] **Tests Automatizados (Pytest)** (Suite de 12 tests implementada en `tests/`)
-- [ ] **Type Hints Estrictos (Mypy)** - *Alta Prioridad:* Mejora la detección de bugs en tiempo de desarrollo.
+- [x] **Type Hints Estrictos (Mypy)** - *Alta Prioridad:* Mejora la detección de bugs en tiempo de desarrollo.
 - [ ] **Dockerización** - *Media Prioridad:* Facilita la ejecución en NAS o servidores 24/7.
 
 ---
@@ -62,5 +60,4 @@ Este documento registra el progreso y el plan de mejoras del proyecto. Como Seni
 ## 📅 Hoja de Ruta Sugerida (Top 3 Próximos Pasos)
 
 1. [x] **Refactor de CLI:** Migrar a Typer/Click para una mejor experiencia de usuario y comandos claros.
-2. [ ] **Soporte OneDrive / S3:** Ampliar los destinos de backup para mayor versatilidad (Windows Standard).
-3. [ ] **Type Hints Estrictos:** Eliminar los `# type: ignore` y asegurar una cobertura total con Mypy.
+2. [ ] **Soporte OneDrive:** Ampliar los destinos de backup para mayor versatilidad.

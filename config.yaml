@@ -11,6 +11,7 @@ sync:
   max_retries: 3
   retry_delay: 5
   chunk_size_mb: 32
+  upload_checksums: false
 
 providers:
   default: "dropbox"
