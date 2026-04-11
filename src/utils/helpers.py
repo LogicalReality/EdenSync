@@ -2,8 +2,11 @@ from __future__ import annotations
 import os
 import time
 import logging
+import hashlib
 import logging.handlers
 import re
+from contextlib import contextmanager
+from typing import Any, Callable, TypeVar, ParamSpec, Generator
 from rich.progress import (
     Progress,
     TextColumn,
@@ -11,12 +14,17 @@ from rich.progress import (
     DownloadColumn,
     TransferSpeedColumn,
     TimeRemainingColumn,
-)  # type: ignore
+)
+from src.config import config
+
+T = TypeVar("T")
+P = ParamSpec("P")
 
 
-def create_shared_progress() -> Progress:
-    """Crea una barra de progreso estilo pip para usar con administradores de contexto."""
-    return Progress(
+@contextmanager
+def create_shared_progress() -> Generator[Progress, None, None]:
+    """Crea una barra de progreso compartida para múltiples hilos."""
+    progress = Progress(
         TextColumn("[bold blue]{task.fields[filename]}", justify="right"),
         BarColumn(bar_width=None),
         "[progress.percentage]{task.percentage:>3.1f}%",
@@ -26,57 +34,22 @@ def create_shared_progress() -> Progress:
         TransferSpeedColumn(),
         "•",
         TimeRemainingColumn(),
-        transient=True,
     )
+    with progress:
+        yield progress
 
-
-# ==========================================
-# CONSTANTES GLOBALES
-# ==========================================
-MAX_RETRIES = 3
-RETRY_DELAY = 5  # segundos
 VERSION_REGEX = re.compile(r"(\d+\.\d+[\d.]*)\.zip", re.IGNORECASE)
 TAG_REGEX = re.compile(r"v\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z0-9]+)?")
 
+MAX_RETRIES: int = config.max_retries
+RETRY_DELAY: int = config.retry_delay
+BACKUP_CONFIG: dict[str, int] = {
+    "emu": config.backup_count,
+    "licenses": config.backup_count,
+    "system": config.backup_count,
+}
+EMU_ASSET_IDENTIFIER: str = config.emu_asset_identifier
 
-# Configuración de cantidad de versiones a respaldar
-def _get_backup_count() -> int:
-    try:
-        count = int(os.environ.get("BACKUP_COUNT", 2))
-        return count if count > 0 else 2
-    except (ValueError, TypeError):
-        return 2
-
-
-BACKUP_COUNT = _get_backup_count()
-
-BACKUP_CONFIG = {"emu": BACKUP_COUNT, "licenses": BACKUP_COUNT, "system": BACKUP_COUNT}
-
-
-# ==========================================
-# SEGURIDAD Y CIFRADO
-# ==========================================
-def xor_cipher(data: str, key: str = "pesync_2026") -> str:
-    """Aplica un cifrado XOR simple. Útil para ocultar strings de escaneos básicos."""
-    try:
-        # Intentamos decodificar desde hexadecimal
-        data_bytes = bytes.fromhex(data)
-        return bytes(
-            [b ^ ord(key[i % len(key)]) for i, b in enumerate(data_bytes)]
-        ).decode("utf-8")
-    except (ValueError, UnicodeDecodeError):
-        # Si falla (o si queremos codificar), devolvemos el hex del XOR
-        return bytes(
-            [ord(c) ^ ord(key[i % len(key)]) for i, c in enumerate(data)]
-        ).hex()
-
-
-EMU_RELEASES_API_URL = xor_cipher(
-    "181107091d59701d575b425e00171c004e3a5f451c5215135c181e0a7044011d4415151c0a41063b575e1f531d105c1c0a06311d42575a1504001c1d"
-)  # URL de la API para las versiones del Emu
-EMU_ASSET_IDENTIFIER = xor_cipher(
-    "0311161803073a515b1f5113065e0a1a0231565140525e240309270e3e5555"
-)  # Fragmento para identificar el binario del Emu
 
 # ==========================================
 # TELEGRAM NOTIFICATIONS
@@ -155,7 +128,7 @@ def setup_logger(name: str = "pesync", log_file: str | None = None) -> logging.L
 
 
 # Inicializar logger global para uso en utilidades
-logger = setup_logger()
+logger: logging.Logger = setup_logger()
 
 
 # ==========================================
@@ -187,7 +160,7 @@ def is_system_file(f: str) -> bool:
     return f_low.endswith(".zip") and ("firmware" in f_low or "v19" in f_low)
 
 
-def wait_for_exit(timeout: int = 15):
+def wait_for_exit(timeout: int = 15) -> None:
     """
     Espera a que el usuario presione Enter para salir.
     Si se presiona cualquier otra tecla durante el timeout, se cancela el cierre automático
@@ -255,3 +228,78 @@ def wait_for_exit(timeout: int = 15):
                 termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
             except Exception:
                 pass
+
+
+# ==========================================
+# REINTENTOS Y RESILIENCIA
+# ==========================================
+from functools import wraps
+import random
+
+
+def retry_with_backoff(
+    max_retries: int = MAX_RETRIES,
+    initial_delay: float = float(RETRY_DELAY),
+    backoff_factor: float = 2.0,
+    exceptions: tuple[type[Exception], ...] = (Exception,),
+) -> Callable[[Callable[P, T]], Callable[P, T]]:
+    """
+    Decorador para reintentar una función con backoff exponencial.
+    
+    Args:
+        max_retries: Número máximo de reintentos.
+        initial_delay: Tiempo de espera inicial en segundos.
+        backoff_factor: Factor por el cual se multiplica el tiempo de espera en cada reintento.
+        exceptions: Tupla de excepciones que disparan un reintento.
+    """
+
+    def decorator(func: Callable[P, T]) -> Callable[P, T]:
+        @wraps(func)
+        def wrapper(*args: P.args, **kwargs: P.kwargs) -> T:
+            delay = initial_delay
+            last_exception: Exception | None = None
+
+            # El primer intento es el intento 0, luego reintentos del 1 al max_retries
+            for attempt in range(max_retries + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions as e:
+                    last_exception = e
+                    if attempt == max_retries:
+                        logger.error(
+                            f"Se alcanzó el máximo de reintentos ({max_retries}) para '{func.__name__}': {e}"
+                        )
+                        break
+
+                    # Añadir un pequeño "jitter" (desviación aleatoria) para evitar "thundering herd"
+                    current_delay = delay + random.uniform(0, 1)
+                    logger.warning(
+                        f"Fallo en '{func.__name__}' (Intento {attempt + 1}/{max_retries + 1}). "
+                        f"Reintentando en {current_delay:.2f}s... Error: {e}"
+                    )
+
+                    time.sleep(current_delay)
+                    delay *= backoff_factor
+
+            # Si llegamos aquí, es que fallaron todos los intentos
+            if last_exception:
+                raise last_exception
+            raise Exception("Unreachable") # Para satisfacer a mypy
+
+        return wrapper
+
+    return decorator
+
+
+def calculate_sha256(file_path: str) -> str:
+    """Calcula el hash SHA256 de un archivo de forma eficiente en memoria."""
+    sha256_hash = hashlib.sha256()
+    try:
+        with open(file_path, "rb") as f:
+            # Leer en bloques de 64KB para no saturar memoria con archivos grandes
+            for byte_block in iter(lambda: f.read(65536), b""):
+                sha256_hash.update(byte_block)
+        return sha256_hash.hexdigest()
+    except Exception as e:
+        logger.error(f"Error al calcular SHA256 para {file_path}: {e}")
+        return ""

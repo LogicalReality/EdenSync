@@ -9,23 +9,21 @@ PESync es una herramienta de automatización en Python diseñada para gestionar 
 Esta herramienta está pensada para la gestión personal de respaldos y la automatización de la configuración del entorno de trabajo.
 
 ```mermaid
-graph LR
-    A[Entorno Local] -- "scripts/setup_storage.py" --> B(Configuración .env)
-    B -- "scripts/test_sync.py" --> C{Validación}
-    C -- "main.py" --> D[Cloud Storage]
-    D -.-> D1[Dropbox]
-    D -.-> D2[Google Drive]
-    E[GitHub Actions] -- "Secrets" --> D
+graph TD
+    A[Usuario] -- "iniciar_pesync.bat" --> B[main.py]
+    B -- "Módulos src/" --> C{Cloud Storage}
+    C --> D[Google Drive]
+    C --> E[Dropbox]
+    F[GitHub Actions] -- "sync.yml" --> B
+    G[Configuración] -- "tools/pesync_setup.bat" --> H[.env]
 ```
 
 ## 🚀 Características
 
 - **Estado basado en la Nube**: El script consulta directamente el almacenamiento remoto al iniciar para determinar qué recursos ya están respaldados.
-- **Límites de Versiones Configurable**: Permite definir cuántas versiones mantener de cada componente de forma independiente.
 - **Rotación Automática y Auto-Limpieza**: El script identifica y elimina automáticamente versiones obsoletas en la nube para mantener solo lo más reciente según la configuración.
 - **Almacenamiento Seguro**: Integración con múltiples servicios en la nube (Dropbox, Google Drive).
-- **Registro y Resumen Detallado**: Implementación de un Console Logger premium para seguimiento en vivo y visualización de un resumen final limpio (versiones procesadas sin extensiones redundantes).
-- **Detección Inteligente de Versiones**: Soporte mejorado y robusto para la extracción de versiones, compatible con diversas nomenclaturas y extensiones (insensible a mayúsculas/minúsculas como `.zip` y `.ZIP`).
+- **Verificación de Integridad (SHA256)**: Cada archivo descargado se valida mediante su firma digital.
 - **Feedback Visual (Progreso)**: Muestra barras de progreso detalladas (0-100%) en consola tanto para la descarga de archivos como para la subida a los servicios de nube (Dropbox/Google Drive).
 - **Notificaciones Telegram**: Envía mensajes automáticos cuando se completan sincronizaciones exitosas o cuando ocurren errores críticos.
 
@@ -82,20 +80,11 @@ Para la ejecución en entorno local, dependiendo del proveedor seleccionado, con
 Para obtener estas credenciales, ejecuta el asistente interactivo:
 
 ```bash
-python scripts/setup_storage.py
+# Opción 1: Ejecutar archivo .bat (Windows)
+.\tools\pesync_setup.bat
+.\tools\pesync_test.bat
+.\tools\pesync_status.bat
 ```
-
-Sigue las instrucciones en pantalla para autorizar la aplicación en tu cuenta de Dropbox o Google Drive. Al finalizar, el script intentará crear/actualizar el archivo `.env` automáticamente.
-
-### Paso 2: Prueba de Conexión (Recomendado)
-
-Antes de la primera ejecución o tras actualizar tus credenciales, verifica que todo funcione correctamente:
-
-```bash
-python scripts/test_sync.py
-```
-
-Este script valida que las llaves guardadas en el archivo `.env` (u obtenidas vía Secrets) sean funcionales y tengan los permisos necesarios.
 
 ### Configuración de Versiones
 
@@ -123,21 +112,31 @@ PESync puede enviarte notificaciones por Telegram para mantenerte informado del 
 1. **Obtener el token del bot:**
    - Habla con [@BotFather](https://t.me/botfather) en Telegram
    - Envía `/newbot` y sigue las instrucciones
+1. **Obtener el token del bot:**
+   - Habla con [@BotFather](https://t.me/botfather) en Telegram
+   - Envía `/newbot` y sigue las instrucciones
    - Copia el token (ejemplo: `123456:ABC-DEF...`)
 
-2. **Obtener tu Chat ID:**
+1. **Obtener tu Chat ID:**
    - Habla con [@userinfobot](https://t.me/userinfobot)
    - Te mostrará tu `id` (ejemplo: `987654321`)
 
-3. **Configurar en `.env`:**
+1. **Configurar en `.env` (Datos Sensibles)**:
+
    ```env
    TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
    TELEGRAM_CHAT_ID=987654321
-   TELEGRAM_NOTIFICATIONS=true
+   ```
+
+1. **Habilitar en `config.yaml`**:
+
+   ```yaml
+   notifications:
+     telegram_enabled: true
    ```
 
 **Notas:**
-- Si `TELEGRAM_NOTIFICATIONS=false` o las variables están vacías, no se enviarán notificaciones
+- Si `notifications.telegram_enabled: false` o las variables están vacías, no se enviarán notificaciones
 - La notificación de éxito solo se envía cuando hay nuevas versiones subidas (no en cada ejecución)
 - La notificación de error se envía automáticamente cuando ocurre un error crítico
 - Los errores de Telegram se loguean pero no bloquean la ejecución
@@ -163,19 +162,21 @@ El sistema divide automáticamente las subidas grandes en bloques fijos de **8MB
 
 ### Resumen de Uso
 
-1. **Obtener Credenciales:** `python scripts/setup_storage.py` (creará el `.env`).
-2. **Validar Conexión:** `python scripts/test_sync.py` (verificará acceso a la nube).
-3. **Ejecutar Sincronización:** `python main.py`.
+1. **Obtener Credenciales:** Ejecuta `.\tools\pesync_setup.bat`.
+2. **Validar Conexión:** Ejecuta `.\tools\pesync_test.bat`.
+3. **Ejecutar Sincronización:** Ejecuta `iniciar_pesync.bat` (en la raíz) o `python main.py`.
 
-## 🛠 Estructura (Arquitectura Modular)
+> [!TIP]
+> Para una guía detallada de todos los comandos y opciones, consulta nuestra [Guía de Uso CLI](docs/GUI_USO_CLI.md).
 
-El proyecto sigue principios de Clean Code, dividiendo las responsabilidades en módulos independientes:
+## 🛠 Estructura (Arquitectura Organizada)
 
-- `main.py`: Punto de entrada principal que orquesta la ejecución del script.
-- `src/core/`: Contiene la lógica central de sincronización y procesamiento de archivos (`backup_logic.py`).
-- `src/providers/`: Gestiona la integración con los proveedores de almacenamiento en la nube (Dropbox, Google Drive).
-- `src/network/`: Centraliza todas las operaciones de red y descargas HTTP usando `requests`.
-- `src/utils/`: Herramientas compartidas (formateo, logging), sistema de notificaciones Telegram (`notifications.py`) y salud del sistema (`health_checks.py`).
-- `scripts/setup_storage.py`: Utilidad interactiva para la configuración inicial y OAuth.
-- `scripts/test_sync.py`: Atajo para validación rápida de conexión sin iniciar el asistente.
-- `requirements.txt`: Definición de dependencias del proyecto.
+El proyecto sigue principios de Clean Code, dividiendo responsabilidades de forma clara:
+
+- **Raíz / `main.py`**: Punto de entrada principal y ejecutor diario (`iniciar_pesync.bat`).
+- **`src/`**: Motor principal del sistema (CLI, Core, Proveedores, Network, Utils).
+- **`docs/`**: Documentación detallada, planes de mejora y [guías de uso](docs/GUI_USO_CLI.md).
+- **`tools/`**: Scripts de utilidad para configuración, diagnóstico y consulta de estado.
+- **`.agents/`**: Contexto compartido para asistentes de IA (`MEMORIA.md`).
+- **`tests/`**: Suite completa de pruebas automatizadas.
+- **`scripts/`**: Lógica de configuración heredada.

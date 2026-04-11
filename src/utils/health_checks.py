@@ -1,9 +1,8 @@
 import os
 import sys
-from typing import Optional
-from src.providers.storage_providers import DropboxProvider, GoogleDriveProvider # type: ignore
-from src.utils.helpers import logger # type: ignore
-from dotenv import load_dotenv # type: ignore
+from src.providers.storage_providers import DropboxProvider, GoogleDriveProvider
+from src.utils.helpers import logger
+from dotenv import load_dotenv
 
 def test_dropbox_connection(silent: bool = False) -> bool:
     """Prueba la conexión con Dropbox y muestra resultados."""
@@ -76,6 +75,7 @@ def test_google_drive_connection(silent: bool = False) -> bool:
         service = provider.service
         if service:
             # Intentar listar un archivo para confirmar acceso
+            # We use type ignore for the service calls as they are dynamic
             results = service.files().list(
                 q=f"'{provider.folder_id}' in parents and trashed=false",
                 pageSize=1,
@@ -94,7 +94,6 @@ def test_google_drive_connection(silent: bool = False) -> bool:
 def run_all_checks() -> bool:
     """Detecta el proveedor configurado y ejecuta la prueba correspondiente."""
     # Recargar variables de entorno por si acaso
-    from dotenv import load_dotenv # type: ignore
     load_dotenv()
     
     provider_type = os.getenv("STORAGE_PROVIDER", "dropbox").lower()

@@ -5,7 +5,7 @@ import sys
 # Asegurar que el directorio raíz está en el path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from src.utils.health_checks import run_all_checks # type: ignore
+from src.utils.health_checks import run_all_checks
 
 if __name__ == "__main__":
     try:
