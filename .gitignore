@@ -1,8 +1,10 @@
 # Carpetas
+.atl/
 __pycache__/
 logs/
 tests/
 .agents/
+.atl/
 
 # Secrets and credentials
 *.json
