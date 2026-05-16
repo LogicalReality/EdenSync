@@ -37,3 +37,30 @@ def test_version_substring_bug():
         # Este assert VA A FALLAR con el código actual porque el bot cree que v0.2.0 ya está (por el substring)
         assert any("v0.2.0.zip" in f and "-rc2" not in f for f in tags_a_descargar), \
             f"El bot ignoró la versión estable v0.2.0 porque encontró {filename_rc2}"
+
+
+def test_stable_asset_name_with_platform_suffix_is_not_downloaded_again():
+    """
+    GitHub publishes assets like Eden-Linux-v0.2.0-steamdeck-gcc-standard.AppImage.
+    The platform suffix must not be parsed as part of the release tag.
+    """
+    stable_file = "Eden-Linux-v0.2.0-steamdeck-gcc-standard.AppImage"
+    rc_file = "Eden-Linux-v0.2.0-rc2-steamdeck-gcc-standard.AppImage"
+    backed_up = {stable_file, rc_file}
+
+    mock_releases = [
+        {
+            "tag_name": "v0.2.0",
+            "assets": [{"name": stable_file, "browser_download_url": "http://ex.com/stable"}],
+        },
+        {
+            "tag_name": "v0.2.0-rc2",
+            "assets": [{"name": rc_file, "browser_download_url": "http://ex.com/rc2"}],
+        },
+    ]
+
+    with patch("src.core.backup_logic.get_emu_releases", return_value=mock_releases):
+        items_to_download, files_to_delete = collect_emu_pending(backed_up)
+
+    assert items_to_download == []
+    assert files_to_delete == []

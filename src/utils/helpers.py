@@ -39,7 +39,7 @@ def create_shared_progress() -> Generator[Progress, None, None]:
         yield progress
 
 VERSION_REGEX = re.compile(r"(\d+\.\d+[\d.]*)\.zip", re.IGNORECASE)
-TAG_REGEX = re.compile(r"v\d+\.\d+(?:\.\d+)?(?:-[a-zA-Z0-9]+)?")
+TAG_REGEX = re.compile(r"v\d+\.\d+(?:\.\d+)?(?:-(?:rc|alpha|beta)\d*)?", re.IGNORECASE)
 
 MAX_RETRIES: int = config.max_retries
 RETRY_DELAY: int = config.retry_delay

@@ -147,29 +147,9 @@ def collect_emu_pending(
     logger.info("[EMU] Verificando versiones...")
     releases: list[dict[str, Any]] = get_emu_releases(n=int(BACKUP_CONFIG.get("emu", 2)))
 
-    # 1. Extraemos los tags reales de los archivos que ya están en el storage
-    tags_en_backup: set[str] = set()
-    for f in backed_up:
-        if EMU_ASSET_IDENTIFIER in f:
-            encontrados = TAG_REGEX.findall(f)
-            if encontrados:
-                tags_en_backup.add(encontrados[0])
-
-    all_core_tags: list[str] = [str(r.get("tag_name", "unknown")) for r in releases]
-    core_in_backup_tags: list[str] = [
-        tag for tag in all_core_tags if tag in tags_en_backup
-    ]
-    logger.info(
-        f"[EMU] En backup: {len(core_in_backup_tags)} de {len(all_core_tags)} - {core_in_backup_tags}"
-    )
-
-    items_to_download: list[tuple[str, str, str]] = []
+    release_assets: list[tuple[str, str, str]] = []
     for release in releases:
-        release_tag: str = str(release.get("tag_name", "unknown"))
-        if release_tag in core_in_backup_tags:
-            continue
-
-        logger.info(f"[EMU] Pendiente: {release_tag}")
+        release_tag = str(release.get("tag_name", "unknown"))
         target_asset: dict[str, Any] | None = next(
             (
                 asset
@@ -181,20 +161,34 @@ def collect_emu_pending(
             None,
         )
         if target_asset:
-            download_url = str(target_asset.get("browser_download_url", ""))
-            file_name = str(target_asset.get("name", ""))
-            if download_url:
-                items_to_download.append((download_url, file_name, "EMU"))
+            release_assets.append(
+                (
+                    release_tag,
+                    str(target_asset.get("name", "")),
+                    str(target_asset.get("browser_download_url", "")),
+                )
+            )
         else:
             logger.error(f"[EMU] No se encontró el asset para {release_tag}")
 
-    desired_emu_files: set[str] = {
-        str(asset.get("name", ""))
-        for release in releases
-        for asset in release.get("assets", [])
-        if EMU_ASSET_IDENTIFIER in str(asset.get("name", ""))
-        and not str(asset.get("name", "")).endswith(".zsync")
-    }
+    all_core_tags: list[str] = [tag for tag, _, _ in release_assets]
+    core_in_backup_tags: list[str] = [
+        tag for tag, file_name, _ in release_assets if file_name in backed_up
+    ]
+    logger.info(
+        f"[EMU] En backup: {len(core_in_backup_tags)} de {len(all_core_tags)} - {core_in_backup_tags}"
+    )
+
+    items_to_download: list[tuple[str, str, str]] = []
+    for release_tag, file_name, download_url in release_assets:
+        if file_name in backed_up:
+            continue
+
+        logger.info(f"[EMU] Pendiente: {release_tag}")
+        if download_url:
+            items_to_download.append((download_url, file_name, "EMU"))
+
+    desired_emu_files: set[str] = {file_name for _, file_name, _ in release_assets}
     files_to_delete: list[str] = [
         f for f in backed_up if EMU_ASSET_IDENTIFIER in f and f not in desired_emu_files
     ]
